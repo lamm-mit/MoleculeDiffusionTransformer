@@ -7,10 +7,9 @@
 In this case, the input and output dimension is the same.
 ```
 logits_dim = 32 #number of tokens
-
 MolTrans = MoleculeTransformer(
         dim=128,
-        depth=3,
+        depth=6,
         logits_dim=logits_dim, #number of tokens, and also input/output dimension
         dim_head = 16,
         heads = 8,
@@ -20,12 +19,12 @@ MolTrans = MoleculeTransformer(
         cond_drop_prob = 0.25,
         max_text_len = 12, #max length of conditioning sequence
         pos_fourier_graph_dim= 32, #entire graph fourier embedding, will be added to logits_dim
+        
 ).cuda()
 
 sequences= torch.randn(4, 12 ).cuda() #conditioning sequence; note, max_text_len=12, 
 output=torch.randint (0,logits_dim, (4, logits_dim , 128)).cuda().float() #batch, number of tokens, length (length is flexible)
-
-#Calculate loss
+ 
 loss=MolTrans(
         sequences=sequences,#conditioning sequence
         output=output,
@@ -42,3 +41,6 @@ images = MolTrans.generate(        sequences=sequences,#conditioning
      )  
 print (images.shape) #(b, number_tokens, tokens_to_generate])
 ```
+
+#### Model that takes input in the form of a sequence (batch, length); Cross Entropy loss
+
