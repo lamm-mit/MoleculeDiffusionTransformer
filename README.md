@@ -77,19 +77,19 @@ loss=model(
 loss.backward()
 loss
 
-images = model.generate(        sequences=sequences,#conditioning
+#no start token provided: Model will randomly select one
+images = model.generate(    sequences=sequences,#conditioning
         tokens_to_generate=32, #can also generate less....
         cond_scale = 1., #temperature=3,  
      )  
      
-#Generate starat token
+#Generate start token
 output_start=torch.randint (0,logits_dim, (4,  1)).cuda().long() #batch, length (length is flexible)
 
 images = model.generate(        sequences=sequences,#conditioning
-                           output=output_start,
+                           output=output_start, #this is the sequence to start with...
         tokens_to_generate=32, #can also generate less....
         cond_scale = 1., #temperature=3,  
      )  
-print (images.shape) #(b, number_tokens, tokens_to_generate])
+print (images.shape) #(b, tokens_to_generate+1) 
 ```
-print (images.shape) #(b, number_tokens, tokens_to_generate])
