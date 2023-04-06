@@ -38,6 +38,10 @@ df.describe()
 2. Generative inverse diffusion model (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
 3. Generative inverse transformer model (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
 
+Weights for models 1: https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 (place in ```QM_diffusion_forward``` folder)
+Weights for models 2: https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 (place in ```QM_generative_diffusion_inverse``` folder)
+
+
 Models 2 and 3 solve the same task, albeit with distinct neural network architectures and strategies. 
 
 The models are set up in a flexible way so they can be used to generate any kind of sqeuence data from conditioning, using both the diffusion or transformer models. 
