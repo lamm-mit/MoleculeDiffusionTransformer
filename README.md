@@ -40,6 +40,8 @@ df.describe()
 
 Models 2 and 3 solve the same task, albeit with distinct neural network architectures and strategies. 
 
+The models are set up in a flexible way so they can be used to generate any kind of sqeuence data from conditioning, using both the diffusion or transformer models. 
+
 ## Forward diffusion model (predicts molecular properties from  input): Basic model setup 
 
 ```
