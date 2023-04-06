@@ -1,6 +1,70 @@
 # MoleculeDiffusionTransformer
 
-## Transformer
+![image](https://user-images.githubusercontent.com/101393859/230314630-120be040-f0ce-4239-b9f9-f0b1a39de0ab.png)
+
+## Installation
+
+```
+conda create -n MoleculeDiffusionTransformer python=3.8
+conda activate MoleculeDiffusionTransformer
+```
+
+```
+git clone https://github.com/lamm-mit/MoleculeDiffusionTransformer/
+cd MoleculeDiffusionTransformer
+```
+To install MoleculeDiffusionTransformer:
+```
+pip install -e .
+```
+Start Jupyter Lab (or Jupyter Notebook):
+```
+jupyter-lab --no-browser
+```
+
+## Datasets
+
+The QM9 dataset is used for training. Download via and place in the home folder:
+
+```
+wget https://www.dropbox.com/s/gajj3euub7k9p9j/qm9_.csv?dl=0 -O qm9_.csv
+df=pd.read_csv("qm9_.csv")
+df.describe()
+```
+
+## Model overview
+
+1. Forward diffusion model (predicts molecular properties from SMILES input)
+2. Generative inverse diffusion model (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
+3. Generative inverse transformer model (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
+
+Models 2 and 3 solve the same task, albeit with distinct neural network architectures and strategies. 
+
+## Diffusion model, forward
+
+```
+from   MoleculeDiffusion import QMDiffusionForward,predict_properties_from_SMILES,ADPM2Sampler
+
+pred_dim=1 #Prediction embedding dimension, 1 here since we're predicting a max_featuresx1 tensor with the properties
+max_length_forward=64
+ 
+context_embedding_max_length=y_data.shape[1]
+model_forward =QMDiffusionForward( 
+        max_length=max_length_forward, #length of predicted data
+        pred_dim=pred_dim,
+        channels=64,
+        unet_type='cfg', #'base', #'cfg',
+        context_embedding_max_length=max_length_forward, #length of conditioning 
+        pos_emb_fourier=True,
+        pos_emb_fourier_add=False,
+        text_embed_dim = 64,
+        embed_dim_position=64,
+        )  .to(device)  
+```
+
+## Diffusion model, generative inverse: Basic model setup 
+
+## Transformer, generative inverse: Basic model setup 
 
 #### Model that takes input in the form (batch, num_tokens, length); MSE loss
 
