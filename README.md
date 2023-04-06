@@ -40,7 +40,7 @@ df.describe()
 
 Models 2 and 3 solve the same task, albeit with distinct neural network architectures and strategies. 
 
-## Diffusion model, forward
+## Forward diffusion model (predicts molecular properties from  input): Basic model setup 
 
 ```
 from   MoleculeDiffusion import QMDiffusionForward,predict_properties_from_SMILES,ADPM2Sampler
@@ -59,12 +59,28 @@ model_forward =QMDiffusionForward(
         pos_emb_fourier_add=False,
         text_embed_dim = 64,
         embed_dim_position=64,
+        ) .to(device)  
+```
+
+## Generative inverse diffusion mode: Basic model setup 
+
+```
+pred_dim=X_data_tokenized_onehot.shape[2] #dimension equals number of unique tokens
+context_embedding_max_length=y_data.shape[1] #dimension equals length of conditioning, i.e. number of molecular features to be considered
+model =QMDiffusion( 
+        max_length=max_length,#length of predicted results, i.e. max length of the SMILES string
+        pred_dim=pred_dim,
+        channels=128,
+        unet_type='cfg', #'base', #'cfg',
+        context_embedding_max_length=context_embedding_max_length,#length of conditioning 
+        pos_emb_fourier=True,
+        pos_emb_fourier_add=False,
+        text_embed_dim = 64,
+        embed_dim_position=64,
         )  .to(device)  
 ```
 
-## Diffusion model, generative inverse: Basic model setup 
-
-## Transformer, generative inverse: Basic model setup 
+## Generative inverse transformer model: Basic model setup 
 
 #### Model that takes input in the form (batch, num_tokens, length); MSE loss
 
@@ -108,7 +124,7 @@ images = MolTrans.generate(        sequences=sequences,#conditioning
 print (images.shape) #(b, number_tokens, tokens_to_generate])
 ```
 
-#### Model that takes input in the form of a sequence (batch, length); Cross Entropy loss
+#### Model that takes input in the form of a sequence (batch, length); Cross Entropy loss (used in the paper)
 
 ```
 from   MoleculeDiffusion import MoleculeTransformerSequence, count_parameters
