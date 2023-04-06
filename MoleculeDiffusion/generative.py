@@ -205,7 +205,9 @@ def train_loop_forward (model,
                 max_length = 32,
                 prefix='./',
                 device='cpu',
-                loss_list=[],
+                loss_list=[],R2_list=[],
+                tokenizer_X=None,
+                X_norm_factor=1.,
                ):
     
     steps=start_step
@@ -265,7 +267,9 @@ def train_loop_forward (model,
                                 test_loader,
                                 cond_scales=cond_scales, #list of cond scales - each sampled...
                                 num_samples=num_samples, #how many samples produced every time tested.....
-                                timesteps=timesteps,clamp=clamp,show_jointplot=show_jointplot, )
+                                timesteps=timesteps,clamp=clamp,show_jointplot=show_jointplot,
+                                tokenizer_X=tokenizer_X, X_norm_factor=X_norm_factor,
+                                               )
                         
                         print (f"\n\n-------------------\nTime passed for {print_loss} at {steps} = {(time.time()-start)/60} mins\n-------------------")
                         R2_list.append (R2)
@@ -281,6 +285,9 @@ def train_loop_forward (model,
                             torch.save(model.state_dict(), fname)
                             print (f"Model saved: ", fname)
                 steps=steps+1
+                
+                
+    return loss_list,R2_list
 
 def sample_loop_forward (model,device,
                  train_loader,
@@ -755,6 +762,7 @@ def train_loop_generative (model,
                 X_norm_factor=1.,
                 device='cpu',
                 loss_list=[],
+                tokenizer_X=None,
                ):
     
 
@@ -812,6 +820,7 @@ def train_loop_generative (model,
                                 num_samples=num_samples, #how many samples produced every time tested.....
                                 timesteps=timesteps,clamp=clamp,show_jointplot=show_jointplot,
                                 model_forward=model_forward,scaler=scaler,X_norm_factor=X_norm_factor,
+                                tokenizer_X=tokenizer_X,
                                                )
                         
                         print (f"\n\n-------------------\nTime passed for {print_loss} epochs at {steps} = {(time.time()-start)/60} mins\n-------------------")
@@ -823,7 +832,7 @@ def train_loop_generative (model,
                             torch.save(model.state_dict(), fname)
                             print (f"Model saved: ", fname)
                 steps=steps+1
-
+    return loss_list 
 
 def sample_loop_generative (model,device,
                  train_loader,model_forward=None,
