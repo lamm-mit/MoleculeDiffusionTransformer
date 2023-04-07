@@ -60,7 +60,6 @@ class QMDiffusionForward(nn.Module):
         
         self.max_length= max_length
         self.pred_dim=pred_dim
-         
         
         if self.unet_type=='cfg':
             if exists (unet):
@@ -68,10 +67,8 @@ class QMDiffusionForward(nn.Module):
             else:
                 self.unet = XUNet1d( type=unet_type,
                     in_channels=pred_dim,
-
                     channels=channels,
                     patch_size=4,
-
                     multipliers=[1, 2, 4,   ],
                     factors    =[4, 4,   ],
                     num_blocks= [3, 3,   ],
@@ -80,12 +77,11 @@ class QMDiffusionForward(nn.Module):
                     attention_features=64,
                     attention_multiplier=2,
                     attention_use_rel_pos=False,
-
                     context_embedding_features=text_embed_dim ,
                     context_embedding_max_length= context_embedding_max_length ,
                 )
 
-            # Either use KDiffusion
+            # use KDiffusion
             self.diffusion = XDiffusion_x(type='k',
                 net=self.unet,
                 sigma_distribution=LogNormalDistribution(mean = -1.2, std = 1.2),
@@ -98,10 +94,9 @@ class QMDiffusionForward(nn.Module):
                 self.unet=unet
             else:
                 self.unet = XUNet1d( type=unet_type,
-                    in_channels=pred_dim,
-
-                    channels=channels,
-                         patch_size=8,
+                        in_channels=pred_dim,
+                        channels=channels,
+                        patch_size=8,
                         multipliers=[1, 2, 4,   ],
                         factors    =[4, 4,   ],
                         num_blocks= [2, 2,   ],
@@ -110,10 +105,9 @@ class QMDiffusionForward(nn.Module):
                         attention_features=64,
                         attention_multiplier=2,
                         attention_use_rel_pos=False,
-
                 )
 
-            # Either use KDiffusion
+            # use KDiffusion
             self.diffusion = XDiffusion_x(type='k',
                 net=self.unet,
                 sigma_distribution=LogNormalDistribution(mean = -1.2, std = 1.2),
@@ -129,7 +123,6 @@ class QMDiffusionForward(nn.Module):
         
         x= self.fc1(x)
         x= self.GELUact(x) 
-        
         
         if self.pos_emb_fourier:
             pos_fourier_xy=self.p_enc_1d(x) 
@@ -156,11 +149,9 @@ class QMDiffusionForward(nn.Module):
         x= self.fc1(x)
         x= self.GELUact(x) 
         
-       
         if self.pos_emb_fourier:
             
             pos_fourier_xy=self.p_enc_1d(x) 
-            
              
             if self.pos_emb_fourier_add:
                 x=x+pos_fourier_xy
@@ -432,6 +423,8 @@ class QMDiffusion(nn.Module):
                  text_embed_dim = 1024,
                  
                  embed_dim_position=64,
+                 
+                 unet=None,
                
                 ):
         super(QMDiffusion, self).__init__()
@@ -455,28 +448,27 @@ class QMDiffusion(nn.Module):
         self.pred_dim=pred_dim
          
         if self.unet_type=='cfg':
-            self.unet = XUNet1d( type=unet_type,
-                in_channels=pred_dim,
+            if exists (unet):
+                self.unet=unet
+            else:
+                self.unet = XUNet1d( type=unet_type,
+                        in_channels=pred_dim,
+                        pre_transformer=2, #number of self attention pre-transformer layers before downsampling
+                        channels=channels,
+                        patch_size=1,
+                        multipliers=[1, 2, 4,   ],
+                        factors    =[4, 4,   ],
+                        num_blocks= [3, 3,   ],
+                        attentions= [4, 4,   ],
+                        attention_heads=8,
+                        attention_features=64,
+                        attention_multiplier=2,
+                        attention_use_rel_pos=False,
+                        context_embedding_features=text_embed_dim ,
+                        context_embedding_max_length= context_embedding_max_length,
+                )
 
-                pre_transformer=2,#number of self attention pre-transformer layers before unet begins
-                                
-                channels=channels,
-                patch_size=1,
-
-                    multipliers=[1, 2, 4,   ],
-                    factors    =[4, 4,   ],
-                    num_blocks= [3, 3,   ],
-                    attentions= [4, 4,   ],
-                    attention_heads=8,
-                    attention_features=64,
-                    attention_multiplier=2,
-                    attention_use_rel_pos=False,
-
-                context_embedding_features=text_embed_dim ,
-                context_embedding_max_length= context_embedding_max_length ,
-            )
-
-            # Either use KDiffusion
+            # use KDiffusion
             self.diffusion = XDiffusion_x(type='k',
                 net=self.unet,
                 sigma_distribution=LogNormalDistribution(mean = -1.2, std = 1.2),
@@ -485,13 +477,14 @@ class QMDiffusion(nn.Module):
             )
 
         if self.unet_type=='base':
-            self.unet = XUNet1d( type=unet_type,
-                in_channels=pred_dim,
-                                
-               # pre_transformer=2,#number of self attention pre-transformer layers before unet begins
-
-                channels=channels,
-                     patch_size=8,
+            if exists (unet):
+                self.unet=unet
+            else:
+                self.unet = XUNet1d( type=unet_type,
+                    in_channels=pred_dim,
+                    pre_transformer=2, #number of self attention pre-transformer layers before downsampling
+                    channels=channels,
+                    patch_size=8,
                     multipliers=[1, 2, 4,   ],
                     factors    =[4, 4,   ],
                     num_blocks= [2, 2,   ],
@@ -500,8 +493,7 @@ class QMDiffusion(nn.Module):
                     attention_features=64,
                     attention_multiplier=2,
                     attention_use_rel_pos=False,
-                
-                )
+                    )
 
             self.diffusion = XDiffusion_x(type='k',
                 net=self.unet,
@@ -526,8 +518,6 @@ class QMDiffusion(nn.Module):
                 x= torch.cat( (x,   pos_fourier_xy), 2)
         ########################## END conditioning ####################################
            
-         
-        #print (output.shape, x.shape)
         if self.unet_type=='cfg':
             loss = self.diffusion(output,embedding=x)
         if self.unet_type=='base':
@@ -547,7 +537,6 @@ class QMDiffusion(nn.Module):
             
             pos_fourier_xy=self.p_enc_1d(x) 
             
-             
             if self.pos_emb_fourier_add:
                 x=x+pos_fourier_xy
             
@@ -825,7 +814,7 @@ def train_loop_generative (model,
                         
                         print (f"\n\n-------------------\nTime passed for {print_loss} epochs at {steps} = {(time.time()-start)/60} mins\n-------------------")
                         start = time.time()
-                        #print (f"\n\n-------------------\nTime for epoch {e}={(time.time()-start)/60} mins\n-------------------")
+                         
                         if save_model:
                             
                             fname=f"{prefix}statedict_save-model-epoch_{e+start_ep}.pt"
@@ -949,3 +938,259 @@ def sample_loop_generative (model,device,
         steps=steps+1
         if steps>num_batches-1:
             break
+
+
+###################################################
+#Trainer and samler for transformer
+
+def train_loop_transformer (model,
+                train_loader,test_loader, device,
+                optimizer=None,
+                print_every=10,
+                epochs= 300,
+                start_ep=0,
+                start_step=0,
+                save_loss_images=False,
+                print_loss=10,
+                cond_scales=[1.],
+                num_samples=2,
+                tokens_to_generate=32,
+                clamp=False,
+                save_model=False,
+                show_jointplot=False,
+                draw_molecules=False,
+                model_forward=None,
+                loss_list =[],
+                start_char_token=0, end_char_token=0,
+                tokenizer_X=None,scaler=None,
+                start_char='', end_char='',
+                ALL_SMILES=None, prefix='./', X_norm_factor=1., 
+               ):
+    
+    steps=start_step
+    start = time.time()
+    
+    loss_total=0
+    for e in range(1, epochs+1):
+            start = time.time()
+
+            torch.cuda.empty_cache()
+           
+            train_epoch_loss = 0
+            model.train()
+            
+            for item  in tqdm (train_loader): #X=smiles, y=conditioning 
+
+                X_train_batch= item[0].to(device) #prediction SMILES
+                y_train_batch=item[1].to(device) #conditiiong
+                
+                optimizer.zero_grad()
+                
+                loss=model(
+                            sequences=y_train_batch,#conditioning sequence
+                            output=X_train_batch.long(),
+                            text_mask = None,
+                            return_loss = True,
+                    )
+                
+                loss.backward( ) #sequences, output ): #sequences=conditioning, output=prediction 
+                
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+
+                optimizer.step()
+
+                loss_total=loss_total+loss.item()
+
+                if steps>0:
+                    if steps % print_loss == 0:
+                        norm_loss=loss_total/print_loss
+                        print (f"\nTOTAL LOSS at epoch={e}, step={steps}: {norm_loss}")
+
+                        loss_list.append (norm_loss)
+                        loss_total=0
+
+                        plt.plot (loss_list, label='Loss')
+                        plt.legend()
+
+                        if save_loss_images:
+                            outname = prefix+ f"loss_{e}_{steps}.jpg"
+                            plt.savefig(outname, dpi=200)
+                        plt.show()
+                        
+                        sample_loop_transformer (model,device ,
+                                test_loader,
+                                cond_scales=cond_scales, #list of cond scales - each sampled...
+                                num_samples=num_samples, #how many samples produced every time tested.....
+                                tokens_to_generate=tokens_to_generate,
+                                clamp=clamp,show_jointplot=show_jointplot,
+                                draw_molecules=draw_molecules,
+                                model_forward=model_forward,
+                                start_char_token=start_char_token, end_char_token=end_char_token,
+                                tokenizer_X=tokenizer_X, scaler=scaler,
+                                start_char=start_char, end_char=end_char, ALL_SMILES=ALL_SMILES,
+                                )
+                        
+                        print (f"\n\n-------------------\nTime passed for {print_loss} epochs at {steps} = {(time.time()-start)/60} mins\n-------------------")
+                        start = time.time()
+                        if save_model:
+
+                            fname=f"{prefix}statedict_save-model-epoch_{e+start_ep}.pt"
+                            torch.save(model.state_dict(), fname)
+                            print (f"Model saved: ", fname)
+                            
+                steps=steps+1
+
+    return loss_list
+
+#### sample
+
+def sample_loop_transformer (model,device,
+                train_loader,
+                cond_scales=[7.5], #list of cond scales - each sampled...
+                num_samples=2, #how many samples produced every time tested.....
+                num_batches=1,
+                tokens_to_generate=32,
+                flag=0, 
+                clamp=False,
+                show_jointplot=False,
+                draw_molecules=False,
+                temperature=1.,
+                model_forward=None,
+                start_char_token=0, end_char_token=0,
+                tokenizer_X=None, scaler=None,
+                start_char='', end_char='',
+                ALL_SMILES=None, prefix='./', X_norm_factor=1.,
+               ):
+    steps=0
+    e=flag
+    novel_count=0 #count of novel 
+    total_count=0 #count of valid molecules 
+    for item  in train_loader:
+            
+        X_train_batch= item[0]
+        y_train_batch=item[1].to(device)#conditinojng
+
+        GT=X_train_batch.squeeze().cpu().numpy() 
+
+        num_samples = min (num_samples,y_train_batch.shape[0] )
+        
+        for iisample in range (len (cond_scales)):
+            
+            start_token=torch.Tensor(start_char_token).to(device)
+            end_token  =torch.Tensor(end_char_token).to(device)
+            start_token=repeat(start_token, '1 1-> b 1', b = X_train_batch.shape[0])
+            
+            result = model.generate(sequences=y_train_batch,#conditioning
+                                    output=start_token,
+                                    tokens_to_generate=tokens_to_generate, #can also generate less....
+                                    cond_scale = cond_scales[iisample], temperature=temperature,  
+                                    )  
+
+            print (GT.shape, result.shape)
+            result=result.squeeze().cpu().numpy()
+            
+            if show_jointplot:
+                sns.jointplot(y=result[:num_samples].flatten(), x=GT[:num_samples].flatten (), kind ='kde')
+                plt.xlabel ('GT')
+                plt.ylabel ('Prediction')
+                plt.show()
+            else:
+                plt.plot (result[:num_samples].flatten(), GT[:num_samples].flatten () , 'r.')
+                plt.xlabel ('GT')
+                plt.ylabel ('Prediction')
+                plt.show ()
+                
+            print (f"sample result {result.shape} GT shape {GT.shape}, conditioning: {y_train_batch.shape}")
+            
+            result_untokenized=reverse_tokenize  (tokenizer_X, result )
+            print ("Result as SMILES: ", result_untokenized[:num_samples])
+            
+            GT_untokenized=reverse_tokenize  (tokenizer_X, GT )
+            print ("GT as SMILES:     ",GT_untokenized[:num_samples])
+            
+            if draw_molecules:
+                l_res=[]
+                l_GT=[]
+                for i in range (num_samples):
+                    
+                    res=remove_start_end_token_first ( result_untokenized[i], start_char, end_char)
+                    GT_s=remove_start_end_token_first ( GT_untokenized[i], start_char, end_char)
+                    
+                    novel_flag=is_novel (ALL_SMILES, res)
+            
+                    print (res, GT_s)
+                    
+                    print ("SMILES result=", res, "GT: ", GT_s, " is novel: ", novel_flag)
+                    valid=draw_and_save (smi =res, 
+                                   GTsmile = GT_s,
+                                   fname=f'{prefix}/sample_{flag}_{i}.png', add_Hs=False)
+                    
+                    if valid:#only if valid SMILES
+                        total_count=total_count+1
+                        if novel_flag:
+                            novel_count=novel_count+1 
+                    
+                    prop,prop_unscaled=predict_properties_from_SMILES (model_forward,device, SMILES=[GT_s,res],
+                             X_norm_factor=X_norm_factor,
+                             cond_scales=[1.], #list of cond scales - each sampled...
+                             scaler=scaler,
+                             timesteps=100,
+                             flag=0, 
+                             clamp=False,
+                             tokenizer_X=tokenizer_X,
+                             draw_molecules=False,
+                             draw_all=False,mols_per_row=8,
+                       )
+                    
+                    print ("Properties: ", prop, " unscaled: ", prop_unscaled)
+                    print ('R2 score= ', r2_score (prop[0,:],prop[1,:]))
+                     
+                    plt.plot (prop[0,:],prop[1,:] , 'r.')
+                    plt.plot ([-1,1], [-1,1], 'k')
+                    plt.axis('square')
+                    plt.xlabel ('GT')
+                    plt.ylabel ('Prediction')
+                    plt.show ()      
+                    
+                    l_res.append (prop[1,:])
+                    l_GT.append (prop[0,:])
+                    
+                l_res=torch.Tensor (l_res).flatten().numpy()
+                l_GT=torch.Tensor (l_GT).flatten().numpy()
+                plt.plot (l_GT, l_res, 'r.')
+                plt.plot ([-1,1], [-1,1], 'k')
+                plt.axis('square')
+                plt.xlabel ('GT')
+                plt.ylabel ('Prediction')
+                plt.show ()   
+                print ('R2 score_overall= ', r2_score ( l_res, l_GT ) )
+                
+                print ("Fraction of novel structures: ", novel_count/total_count, 
+                       f"{novel_count} out of {total_count}")                    
+                    
+        steps=steps+1
+        if steps>num_batches-1:
+            break
+
+####################### additional helpers
+    
+def add_start_end_char (X_data_temp, 
+                        start_char='@',
+                        end_char='$'):
+
+    X_data=[]
+    for i in range (len (X_data_temp)):
+        X_data.append (start_char+X_data_temp[i]+end_char)
+        
+    return X_data
+
+def remove_start_end_token (string_input, start='@', end='$'):
+    res = string_input.replace(start, "")
+    res = res.replace(end, "")
+    return res
+
+def remove_start_end_token_first (string_input, start='@', end='$'):
+    i=string_input.find(start)
+    j=string_input.find(end)
+    return string_input [i+1:j]
+    

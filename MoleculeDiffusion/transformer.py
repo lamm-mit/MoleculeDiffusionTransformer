@@ -780,3 +780,4 @@ class MoleculeTransformerSequence(nn.Module):
             )
         
         return loss
+    

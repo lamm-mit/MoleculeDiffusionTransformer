@@ -697,7 +697,7 @@ class DownsampleBlock1d(nn.Module):
         
         ####################################################
         if self.pre_transformer>0:
-           
+            #print (x.shape)
             x = self.pre_transformer_block(x)#, context=x ) #torch.permute(x, (0, 2, 1)))
             skips += [x] if self.use_skip else []
         ####################################################
