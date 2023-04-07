@@ -55,6 +55,12 @@ wget https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?
 wget https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 -O ./QM_generative_diffusion_inverse/statedict_save-model-epoch_4851.pt
 wget https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.pt?dl=0 -O ./QM_generative_transformer_inverse/statedict_save-model-epoch_2861.pt
 ```
+## Sample results
+
+Both generative models can generate novel molecular structure that meet a set of properties. The image below shows a comparison of the predicted properties with the set of required properties, along with the molecular structure. 
+
+![image](https://user-images.githubusercontent.com/101393859/230594382-def034ce-7cce-457e-b8e6-57340c84740c.png)
+
 ## General use of the models
 
 The models are set up in a flexible way so they can be used to generate any kind of sqeuence data from conditioning, using both the diffusion or transformer models. Below are examples of how this can be done. To implement this for systems other than, say, SMILES representations, the traing, sampling and property prediction methods need to be rewritten. 
