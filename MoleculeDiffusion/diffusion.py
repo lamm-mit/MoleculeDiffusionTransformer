@@ -11,6 +11,9 @@ from torch import Tensor
 
 from .utils import default, exists
 
+#from tqdm import tqdm, trange
+from tqdm.notebook import trange, tqdm
+
 """
 Diffusion Training
 """
@@ -516,7 +519,7 @@ class ADPM2Sampler(Sampler):
     ) -> Tensor:
         x = sigmas[0] * noise
         # Denoise to sample
-        for i in range(num_steps - 1):
+        for i in tqdm ( range(num_steps - 1 ) ):
             x = self.step(x, fn=fn, sigma=sigmas[i], sigma_next=sigmas[i + 1])  # type: ignore # noqa
         return x
 
@@ -531,7 +534,7 @@ class ADPM2Sampler(Sampler):
     ) -> Tensor:
         x = sigmas[0] * torch.randn_like(source)
 
-        for i in range(num_steps - 1):
+        for i in tqdm (range(num_steps - 1)):
             # Noise source to current noise level
             source_noisy = source + sigmas[i] * torch.randn_like(source)
             for r in range(num_resamples):
@@ -547,7 +550,6 @@ class ADPM2Sampler(Sampler):
 
 
 """ Main Classes """
-
 
 class DiffusionSampler(nn.Module):
     def __init__(
@@ -598,6 +600,7 @@ class DiffusionInpainter(nn.Module):
         num_resamples: int,
         sampler: Sampler,
         sigma_schedule: Schedule,
+         
     ):
         super().__init__()
         self.denoise_fn = diffusion.denoise_fn
@@ -607,14 +610,17 @@ class DiffusionInpainter(nn.Module):
         self.sigma_schedule = sigma_schedule
 
     @torch.no_grad()
-    def forward(self, inpaint: Tensor, inpaint_mask: Tensor) -> Tensor:
+    def forward(self, inpaint: Tensor, inpaint_mask: Tensor, **kwargs) -> Tensor:
+        fn = lambda *a, **ka: self.denoise_fn(*a, **{**ka, **kwargs})  # noqa
         x = self.inpaint_fn(
             source=inpaint,
             mask=inpaint_mask,
-            fn=self.denoise_fn,
+            fn=fn,
+            #fn=self.denoise_fn,
             sigmas=self.sigma_schedule(self.num_steps, inpaint.device),
             num_steps=self.num_steps,
             num_resamples=self.num_resamples,
+
         )
         return x
 
@@ -702,7 +708,7 @@ class XDiffusion_x(nn.Module):
         super().__init__()
 
         diffusion_classes = [VDiffusion, KDiffusion, VKDiffusion, KDiffusion_mod]
-        print (diffusion_classes)
+         
         aliases = [t.alias for t in diffusion_classes]  # type: ignore
         message = f"type='{type}' must be one of {*aliases,}"
         assert type in aliases, message
@@ -733,7 +739,33 @@ class XDiffusion_x(nn.Module):
         )
         
         return diffusion_sampler(noise, **kwargs)
-    
+ 
+
+    def inpaint(#inpainting
+        self,
+    #    noise: Tensor,
+        sigma_schedule,
+        sampler,
+        inpaint, #input "draft" 
+        in_paint_mask, # # Set to `True` the parts you want to keep
+        num_steps: int,
+        num_resamples: int,
+        **kwargs,
+    ) -> Tensor:
+      
+        inpainter = DiffusionInpainter(
+            diffusion=self.diffusion,
+            sampler=sampler,
+            sigma_schedule=sigma_schedule,
+            num_steps=num_steps,
+            num_resamples=num_resamples,
+           #  **kwargs,
+           
+        )
+        
+       # return diffusion_sampler(noise, **kwargs)
+        return inpainter(inpaint = inpaint, inpaint_mask = in_paint_mask, **kwargs)
+
 
 class KDiffusion_mod(Diffusion):
     """Elucidated Diffusion (Karras et al. 2022): https://arxiv.org/abs/2206.00364"""

@@ -61,5 +61,5 @@ from MoleculeDiffusion.generative import pad_sequence_lastchannel, train_loop_fo
 
 from MoleculeDiffusion.generative import is_novel, view_difference, draw_and_save, draw_and_save_set,MoleculeDataset, get_data_loaders, reverse_tokenize, train_loop_generative, sample_loop_generative
 
-from MoleculeDiffusion.generative import add_start_end_char, remove_start_end_token, remove_start_end_token, remove_start_end_token_first, train_loop_transformer, sample_loop_transformer
+from MoleculeDiffusion.generative import add_start_end_char, remove_start_end_token, remove_start_end_token, remove_start_end_token_first, train_loop_transformer, sample_loop_transformer, encode_SMILES_into_one_hot, inpaint_from_draft_and_conditioning, generate_from_conditioning, inpaint_from_draft_and_conditioning,plot_results_as_barchart
 
