@@ -40,10 +40,11 @@ df.describe()
 
 ### Pretrained weights
 
-- Weights for models 1: https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 (place in 'diffusion_forward' folder)
+- Weights for model 1: https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 (place in 'diffusion_forward' folder)
 
-- Weights for models 2: https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 (place in 'QM_generative_diffusion_inverse' folder)
+- Weights for model 2: https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 (place in 'QM_generative_diffusion_inverse' folder)
 
+- Weights for model 3: https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.pt?dl=0 (place in 'QM_generative_transformer_inverse' folder)
 
 Models 2 and 3 solve the same task, albeit with distinct neural network architectures and strategies. 
 
