@@ -59,7 +59,7 @@ wget https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.p
 
 Both generative models can generate novel molecular structure that meet a set of properties. The image below shows a comparison of the predicted properties with the set of required properties, along with the molecular structure. 
 
-![image](https://user-images.githubusercontent.com/101393859/230594382-def034ce-7cce-457e-b8e6-57340c84740c.png)
+![image](https://user-images.githubusercontent.com/101393859/230594632-11e80aab-05ba-497e-9ed3-01d58b6c3d21.png)
 
 ## General use of the models
 
