@@ -50,6 +50,15 @@ Models 2 and 3 solve the same task, albeit with distinct neural network architec
 
 The models are set up in a flexible way so they can be used to generate any kind of sqeuence data from conditioning, using both the diffusion or transformer models. 
 
+#### Download all weights and place in proper folders:
+
+```
+wget https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 -O ./diffusion_forward/statedict_save-model-epoch_78.pt
+wget https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 -O ./QM_generative_diffusion_inverse/statedict_save-model-epoch_4851.pt
+wget https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.pt?dl=0 -O ./QM_generative_transformer_inverse/statedict_save-model-epoch_2861.pt
+
+```
+
 ## Forward diffusion model (predicts molecular properties from  input): Basic model setup 
 
 ```
