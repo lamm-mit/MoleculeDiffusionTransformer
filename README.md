@@ -1,6 +1,6 @@
 # MoleculeDiffusionTransformer
 
-![image](https://user-images.githubusercontent.com/101393859/230314630-120be040-f0ce-4239-b9f9-f0b1a39de0ab.png)
+![image](https://user-images.githubusercontent.com/101393859/230594718-d818b4a4-6af9-4df3-a7a9-ae2d86918c16.png)
 
 ## Installation
 
