@@ -8,7 +8,7 @@
 conda create -n MoleculeDiffusionTransformer python=3.8
 conda activate MoleculeDiffusionTransformer
 ```
-
+Clone repository
 ```
 git clone https://github.com/lamm-mit/MoleculeDiffusionTransformer/
 cd MoleculeDiffusionTransformer
@@ -48,18 +48,18 @@ df.describe()
 
 Models 2 and 3 solve the same task, albeit with distinct neural network architectures and strategies. 
 
-The models are set up in a flexible way so they can be used to generate any kind of sqeuence data from conditioning, using both the diffusion or transformer models. 
-
 #### Download all weights and place in proper folders:
 
 ```
 wget https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 -O ./diffusion_forward/statedict_save-model-epoch_78.pt
 wget https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 -O ./QM_generative_diffusion_inverse/statedict_save-model-epoch_4851.pt
 wget https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.pt?dl=0 -O ./QM_generative_transformer_inverse/statedict_save-model-epoch_2861.pt
-
 ```
+## General use of the models
 
-## Forward diffusion model (predicts molecular properties from  input): Basic model setup 
+The models are set up in a flexible way so they can be used to generate any kind of sqeuence data from conditioning, using both the diffusion or transformer models. Below are examples of how this can be done. To implement this for systems other than, say, SMILES representations, the traing, sampling and property prediction methods need to be rewritten. 
+
+### Forward diffusion model (predicts molecular properties from  input): Basic model setup 
 
 ```
 from   MoleculeDiffusion import QMDiffusionForward,predict_properties_from_SMILES,ADPM2Sampler
@@ -81,7 +81,7 @@ model_forward =QMDiffusionForward(
         ) .to(device)  
 ```
 
-## Generative inverse diffusion mode: Basic model setup 
+### Generative inverse diffusion mode: Basic model setup 
 
 ```
 from MoleculeDiffusion import QMDiffusion 
@@ -123,7 +123,7 @@ generated=model.sample (sequences,
 print (generated.shape) #(b, pred_dim, max_length])
 ```
 
-## Generative inverse transformer model: Basic model setup 
+### Generative inverse transformer model: Basic model setup 
 
 #### Model that takes input in the form (batch, num_tokens, length); MSE loss
 
@@ -217,7 +217,7 @@ generated = model.generate(sequences=sequences,#conditioning
 print (generated.shape) #(b, tokens_to_generate+1) 
 ```
 
-## Utility functions 
+## Utility functions (e.g. drawing SMILES representations) 
 
 ```
 from MoleculeDiffusion import draw_and_save, draw_and_save_set
