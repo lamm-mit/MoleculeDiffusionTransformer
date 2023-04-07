@@ -182,3 +182,20 @@ images = model.generate(        sequences=sequences,#conditioning
      )  
 print (images.shape) #(b, tokens_to_generate+1) 
 ```
+
+## Utility functions 
+
+```
+from MoleculeDiffusion import draw_and_save, draw_and_save_set
+#this function draws and saves a set of SMILES codes
+draw_and_save_set (smiles = ['CC(=CC(C)(C)CCCCCCCC(=O)O)C1CCC2C(=CC=C3CC(O)CC(O)C3)CCCC21C',
+                             'CCCC(C)'],
+                   fname='out.png',
+                   plot_title=None,
+                   figsize=1,
+                   mols_per_row=2,
+                )
+
+#This function compates a predicted SMILES code with a ground truth one
+draw_and_save (smi = 'CC=C', GTsmile = 'CNC=C', fname='out.png', add_Hs=True)
+```
