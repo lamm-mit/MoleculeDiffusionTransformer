@@ -74,19 +74,43 @@ model_forward =QMDiffusionForward(
 ## Generative inverse diffusion mode: Basic model setup 
 
 ```
-pred_dim=X_data_tokenized_onehot.shape[2] #dimension equals number of unique tokens
-context_embedding_max_length=y_data.shape[1] #dimension equals length of conditioning, i.e. number of molecular features to be considered
+from MoleculeDiffusion import QMDiffusion 
+
+device='cpu'
+max_length = 64
+pred_dim=16 #dimension equals number of unique tokens
+context_embedding_max_length=12 #dimension equals length of conditioning, i.e. number of molecular features to be considered
+
 model =QMDiffusion( 
         max_length=max_length,#length of predicted results, i.e. max length of the SMILES string
         pred_dim=pred_dim,
-        channels=128,
+        channels=64,
         unet_type='cfg', #'base', #'cfg',
         context_embedding_max_length=context_embedding_max_length,#length of conditioning 
         pos_emb_fourier=True,
         pos_emb_fourier_add=False,
         text_embed_dim = 64,
         embed_dim_position=64,
-        )  .to(device)  
+        )  .to(device)
+
+sequences= torch.randn(4, context_embedding_max_length ).to (device) #conditioning sequence; note, max_text_len=12, 
+output=torch.randint (0,pred_dim, (4, pred_dim , max_length)).to(device).float() #batch, number of tokens, length (length is flexible)
+ 
+loss=model(sequences=sequences, #conditioning sequence (set of floating points)
+           output=output, #desired result (e.g. one-hot encoded sequence
+        )
+loss.backward()
+loss
+
+#Generate
+generated=model.sample (sequences,
+              device,
+              cond_scale=1.,
+              timesteps=64,
+              clamp=False,
+              )
+ 
+print (generated.shape) #(b, pred_dim, max_length])
 ```
 
 ## Generative inverse transformer model: Basic model setup 
@@ -126,11 +150,11 @@ loss.backward()
 loss
 
 #Generate
-images = MolTrans.generate(        sequences=sequences,#conditioning
-        tokens_to_generate=128, #can also generate less....
-        cond_scale = 1., #temperature=3,  
-     )  
-print (images.shape) #(b, number_tokens, tokens_to_generate])
+generated = MolTrans.generate (   sequences=sequences,#conditioning
+                                 tokens_to_generate=128, #can also generate less....
+                                 cond_scale = 1., temperature=1,  
+                              )  
+print (generated.shape) #(b, number_tokens, tokens_to_generate])
 ```
 
 #### Model that takes input in the form of a sequence (batch, length); Cross Entropy loss (used in the paper)
@@ -158,29 +182,29 @@ sequences= torch.randn(4, 12 ).cuda() #conditioning sequence; note, max_text_len
 output=torch.randint (0,logits_dim, (4,  23)).cuda().long() #batch, length (length is flexible)
 print (output.shape)
 loss=model(
-        sequences=sequences,#conditioning sequence
-        output=output,
-        text_mask = None,
-        return_loss = True,
-)
+          sequences=sequences,#conditioning sequence
+          output=output,
+          text_mask = None,
+          return_loss = True,
+          )
 loss.backward()
 loss
 
-#no start token provided: Model will randomly select one
-images = model.generate(    sequences=sequences,#conditioning
+#if no start token provided: Model will randomly select one
+generated = model.generate(    sequences=sequences,#conditioning
         tokens_to_generate=32, #can also generate less....
         cond_scale = 1., #temperature=3,  
-     )  
+        )  
      
 #Generate start token
 output_start=torch.randint (0,logits_dim, (4,  1)).cuda().long() #batch, length (length is flexible)
 
-images = model.generate(        sequences=sequences,#conditioning
+generated = model.generate(sequences=sequences,#conditioning
                            output=output_start, #this is the sequence to start with...
-        tokens_to_generate=32, #can also generate less....
-        cond_scale = 1., #temperature=3,  
-     )  
-print (images.shape) #(b, tokens_to_generate+1) 
+                           tokens_to_generate=32, #can also generate less....
+                           cond_scale = 1., temperature=1,  
+                           )  
+print (generated.shape) #(b, tokens_to_generate+1) 
 ```
 
 ## Utility functions 
