@@ -187,7 +187,58 @@ model = MoleculeTransformerSequence(
         heads = 8,
         dropout = 0.,
         ff_mult = 4,
-        text_embed_dim = 32,
+        text_embed_dim = 32, # conditioning embedding
+        cond_drop_prob = 0.25,
+        max_text_len = 12, #max length of conditioning sequence
+        pos_fourier_graph_dim= 32, #entire graph fourier embedding, will be added to logits_dim
+              
+).cuda()
+
+sequences= torch.randn(4, 12 ).cuda() #conditioning sequence; note, max_text_len=12, 
+output=torch.randint (0,logits_dim, (4,  23)).cuda().long() #batch, length (length is flexible)
+print (output.shape)
+loss=model(
+          sequences=sequences,#conditioning sequence
+          output=output,
+          text_mask = None,
+          return_loss = True,
+          )
+loss.backward()
+loss
+
+#if no start token provided: Model will randomly select one
+generated = model.generate(    sequences=sequences,#conditioning
+        tokens_to_generate=32, #can also generate less....
+        cond_scale = 1., #temperature=3,  
+        )  
+     
+#Generate start token
+output_start=torch.randint (0,logits_dim, (4,  1)).cuda().long() #batch, length (length is flexible)
+
+generated = model.generate(sequences=sequences,#conditioning
+                           output=output_start, #this is the sequence to start with...
+                           tokens_to_generate=32, #can also generate less....
+                           cond_scale = 1., temperature=1,  
+                           )  
+print (generated.shape) #(b, tokens_to_generate+1) 
+```
+
+#### More flexible model that takes input in the form of a sequence (batch, length), with different embedding/internal dim Cross Entropy loss (used in the paper)
+
+```
+from   MoleculeDiffusion import MoleculeTransformerSequenceInternaldim, count_parameters
+logits_dim = 32 #number of tokens
+
+model = MoleculeTransformerSequenceInternaldim(
+        dim=128,
+        depth=6,
+        logits_dim=logits_dim, #number of tokens  
+        dim_head = 16,
+        heads = 8,
+        dropout = 0.,
+        ff_mult = 4,
+        embed_dim = 16, # input embedding 
+        text_embed_dim = 32, # conditioning embedding
         cond_drop_prob = 0.25,
         max_text_len = 12, #max length of conditioning sequence
         pos_fourier_graph_dim= 32, #entire graph fourier embedding, will be added to logits_dim
