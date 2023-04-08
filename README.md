@@ -223,6 +223,35 @@ generated = model.generate(sequences=sequences,#conditioning
 print (generated.shape) #(b, tokens_to_generate+1) 
 ```
 
+### Forward transformer model (predicts molecular properties from  input): Basic model setup 
+
+This model takes a tokenized sequence and produces an encoded output. 
+
+```
+max_length        =64
+logits_dim_length =12
+logits_dim        = 1           #output will be b, logits_dim, logits_dim_length
+
+model = MoleculeTransformerSequenceEncoder(
+        dim=64,
+        depth=3,
+        logits_dim=logits_dim,                            
+        logits_dim_length = logits_dim_length , #  OUTPUT: (b, logits_dim, logits_dim_length)
+        max_length = max_length, #  
+        dim_head = 8,
+        heads = 8,
+        dropout = 0.1,
+        ff_mult = 2.,
+        max_tokens= num_words,
+        embed_dim = 16,  #for sequence embedding
+        padding_token=0, #used for mask generation
+
+).cuda()
+
+seq_input=torch.randint (0,num_words, (4, max_length)).cuda()  #batch, max_length  
+pred=model(seq_input) # 4, logits_dim, logits_dim_length
+``` 
+
 ## Utility functions (e.g. drawing SMILES representations) 
 
 ```
