@@ -308,6 +308,31 @@ seq_input=torch.randint (0,num_words, (4, max_length)).cuda()  #batch, max_lengt
 pred=model(seq_input) # 4, logits_dim, logits_dim_length
 ``` 
 
+### Multi-task transformer model, full multi-headed attention
+
+Full multi-headed autoregressive model, can be used to train multi-task fully text based model. 
+
+```
+from MoleculeDiffusion import MoleculeTransformerGPT
+
+logits_dim = num_words #number of tokens
+model = MoleculeTransformerGPT(
+        dim=256,
+        depth=12,
+        logits_dim=logits_dim, #number of tokens 
+        max_tokens = logits_dim,
+        dim_head = 16,
+        heads = 16,
+        dropout = 0.,
+        ff_mult = 2,
+        one_kv_head=False,
+        embed_dim = 8, #for input sequence
+        text_embed_dim = 8, #256, #for sequenc conditiing
+).cuda()
+optimizer = optim.Adam(model.parameters() , lr=0.0002)
+```
+
+
 ## Utility functions (e.g. drawing SMILES representations) 
 
 ```
