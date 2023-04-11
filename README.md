@@ -35,18 +35,21 @@ df.describe()
 ## Model overview
 
 1. Forward diffusion model (predicts molecular properties from SMILES input)
-2. Generative inverse diffusion model (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
-3. Generative inverse transformer model (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
+2. Forward transformer model, using an encoder architecture (predicts molecular properties from SMILES input)
+3. Generative inverse diffusion model (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
+4. Generative inverse transformer mode, using an autoregressive decoder (predicts molecular designs via SMILES codes from molecular properties input, solving the inverse problem)
 
 ### Pretrained weights
 
-- Weights for model 1: https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 (place in 'diffusion_forward' folder)
+- Weights for model 1: https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 (place in ```diffusion_forward``` folder)
 
-- Weights for model 2: https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 (place in 'QM_generative_diffusion_inverse' folder)
+- Weights for model 2: https://www.dropbox.com/s/6hkd5vpw738o4so/statedict_save-model-epoch_10.pt?dl=0 (place in ```transformer_forward``` folder)
 
-- Weights for model 3: https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.pt?dl=0 (place in 'QM_generative_transformer_inverse' folder)
+- Weights for model 3: https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 (place in ```QM_generative_diffusion_inverse``` folder)
 
-Models 2 and 3 solve the same task, albeit with distinct neural network architectures and strategies. 
+- Weights for model 4: https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.pt?dl=0 (place in ```QM_generative_transformer_inverse``` folder)
+
+Models 1 and 2, and respectively, models 3 and 4 solve the same task, albeit with distinct neural network architectures and strategies. 
 
 #### Download all weights and place in proper folders:
 
@@ -54,7 +57,9 @@ Models 2 and 3 solve the same task, albeit with distinct neural network architec
 wget https://www.dropbox.com/s/wft4uhcj8287ojt/statedict_save-model-epoch_78.pt?dl=0 -O ./diffusion_forward/statedict_save-model-epoch_78.pt
 wget https://www.dropbox.com/s/xzb2bb4eo1m859p/statedict_save-model-epoch_4851.pt?dl=0 -O ./QM_generative_diffusion_inverse/statedict_save-model-epoch_4851.pt
 wget https://www.dropbox.com/s/fqu6mogj4yw2rcc/statedict_save-model-epoch_2861.pt?dl=0 -O ./QM_generative_transformer_inverse/statedict_save-model-epoch_2861.pt
+wget https://www.dropbox.com/s/6hkd5vpw738o4so/statedict_save-model-epoch_10.pt?dl=0 -O ./transformer_forward/statedict_save-model-epoch_78.pt
 ```
+
 ## Sample results
 
 Both generative models can generate novel molecular structure that meet a set of properties. The image below shows a comparison of the predicted properties with the set of required properties, along with the molecular structure. 
