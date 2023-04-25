@@ -6,6 +6,7 @@ from functools import partial
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+from torch.nn import MultiheadAttention 
 import torchvision.transforms as T
 
 from einops import rearrange, repeat
@@ -110,6 +111,86 @@ def FeedForward(dim, mult = 4, dropout = 0.):
         nn.Linear(dim_hidden, dim, bias = False)
     )
 
+class ReluSquared(nn.Module):
+    def forward(self, x):
+        return F.relu(x) ** 2
+    
+class GLU(nn.Module):
+    def __init__(self, dim_in, dim_out, activation):
+        super().__init__()
+        self.act = activation
+        self.proj = nn.Linear(dim_in, dim_out * 2)
+
+    def forward(self, x):
+        x, gate = self.proj(x).chunk(2, dim = -1)
+        return x * self.act(gate)
+    
+class FeedForward_CNN(nn.Module):
+    def __init__(
+        self,
+        dim,
+        dim_out = None,
+        mult = 4,
+        glu = False,
+        swish = False,
+        relu_squared = False,
+        post_act_ln = False,
+        dropout = 0.,
+        no_bias = False,
+        zero_init_output = False,
+        conv_kernel = 0, #if >0 use conv1d
+    ):
+        super().__init__()
+        inner_dim = int(dim * mult)
+        dim_out = default(dim_out, dim)
+
+        if relu_squared:
+            activation = ReluSquared()
+        elif swish:
+            activation = nn.SiLU()
+        else:
+            activation = nn.GELU()
+
+        project_in = nn.Sequential(
+            nn.Linear(dim, inner_dim, bias = not no_bias),
+            activation
+        ) if not glu else GLU(dim, inner_dim, activation)
+
+        self.ff = nn.Sequential(
+            project_in,
+            nn.LayerNorm(inner_dim) if post_act_ln else nn.Identity(),
+            nn.Dropout(dropout),
+            nn.Linear(inner_dim, dim_out, bias = not no_bias)
+        )
+
+        # init last linear layer to 0
+        if zero_init_output:
+            init_zero_(self.ff[-1])
+            
+        self.conv_kernel=conv_kernel
+        if self.conv_kernel>0:
+            #define two resnet blocks
+            self.resnetblock2 = nn.Sequential(
+                nn.Conv1d(dim, dim, kernel_size=conv_kernel, stride=1, padding='same'),
+                activation,
+                nn.Conv1d(dim, dim, kernel_size=conv_kernel, stride=1, padding='same'),
+            )
+            self.resnetblock2 = nn.Sequential(
+                nn.Conv1d(dim_out, dim_out, kernel_size=conv_kernel, stride=1, padding='same'),
+                activation,
+                nn.Conv1d(dim_out, dim_out, kernel_size=conv_kernel, stride=1, padding='same'),
+            )
+
+    def forward(self, x):
+        if self.conv_kernel>0:
+            x=self.resnetblock1(x.permute (0,2,1)).permute (0,2,1)+x
+
+        x=self.ff(x)
+        if self.conv_kernel>0:
+            x=self.resnetblock2(x.permute (0,2,1)).permute (0,2,1)+x
+        
+        return x
+    
 # attention
 
 class Attention(nn.Module):
@@ -210,9 +291,9 @@ class Attention(nn.Module):
 
         return self.to_out(out)
     
-###################################  
+#########################################################################################################  
 #https://github.com/tatp22/multidim-positional-encoding/blob/master/positional_encodings/positional_encodings.py
-
+#########################################################################################################
 class PositionalEncoding1D(nn.Module):
     def __init__(self, channels):
         """
@@ -609,7 +690,7 @@ class MoleculeTransformerSequence(nn.Module):
         text_embed_dim = None,
         cond_drop_prob = 0.25,
         max_text_len = 128,
-        pos_fourier_graph_dim= 32, #entire graph fourier embedding, has to be == dim in case of embedding since we add fourier to signal
+       # pos_fourier_graph_dim= 32, #entire graph fourier embedding, has to be == dim in case of embedding since we add fourier to signal
 
     ):
         super().__init__()
@@ -643,8 +724,12 @@ class MoleculeTransformerSequence(nn.Module):
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
+                
                 Attention(dim, causal = True, rel_pos_bias = False, 
                           dim_head = dim_head, heads = heads, dropout = dropout),
+                
+                
+                
                 Attention(dim, context_dim = text_embed_dim, dim_head = dim_head, heads = heads, dropout = dropout),
                 FeedForward(dim, mult = ff_mult, dropout = dropout)
             ]))
@@ -663,7 +748,7 @@ class MoleculeTransformerSequence(nn.Module):
          text_mask=None,
         #texts,
         *,
-            tokens_to_generate=32,
+        tokens_to_generate=32,
         cond_scale = 3.,
         filter_thres = 0.9,
         temperature = 1.,
@@ -683,7 +768,7 @@ class MoleculeTransformerSequence(nn.Module):
             
             
             sampled  = self.forward_with_cond_scale(
-                #sampled = self.forward (
+                
                     sequences = sequences,
                     text_mask = text_mask,
                     output = output,
@@ -741,8 +826,7 @@ class MoleculeTransformerSequence(nn.Module):
                                                           self.pos_fourier_graph_dim).to(device) )  
   
         output=output+pos_fourier_graph
-    
-               
+        
         # enforce max text len
 
         if not exists(text_mask):
@@ -758,6 +842,204 @@ class MoleculeTransformerSequence(nn.Module):
 
         # attend
         x = self.init_norm(output)
+        for self_attn, cross_attn, ff in self.layers:
+            
+            x = self_attn(x) + x
+            x = cross_attn(x, context = cond_x, context_mask = text_mask) + x
+            s_causal=False
+            
+            x = ff(x) + x
+
+        x = self.final_norm(x)
+
+        # to logits
+        logits = self.to_logits(x)
+         
+        if not return_loss:
+            return logits
+        
+        logits=logits[:,:-1,:]
+       
+        loss = F.cross_entropy(
+            rearrange(logits , 'b n c -> b c n'),
+            labels ,
+            # ignore_index = 0
+            )
+        
+        return loss
+
+############## same but with flexible internal dimension (in previous: embed_dim is equal to dim)
+class MoleculeTransformerSequenceInternaldim(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        depth,
+        max_tokens=32,
+        logits_dim=32, 
+        dim_head = 64,
+        heads = 8,
+        dropout = 0.,
+        ff_mult = 4,
+        embed_dim = 16, #for input sequence
+        text_embed_dim = None, #for cnditining 
+        cond_drop_prob = 0.25,
+        max_text_len = 128,
+        one_kv_head=True,
+        ):
+        super().__init__()
+
+        self.embed_dim = embed_dim
+        self.text_embed_dim =  text_embed_dim 
+        self.pos_fourier_graph_dim=embed_dim
+
+        #sequence to embedding    
+        self.token_embed = nn.Embedding(max_tokens, embed_dim)
+        #embedding to dim
+        self.to_dim = nn.Linear( self.embed_dim, dim, bias = False)
+            
+        self.fc1 = nn.Linear( 1,  text_embed_dim)  # INPUT DIM (last), OUTPUT DIM, last. This converts sequence conditioning to higher dimension
+        self.GELUact= nn.GELU()
+        ################
+        
+        self.p_enc_1d = PositionalEncoding1D(text_embed_dim)     #fourier encoding for conditioning sequence
+        self.p_enc_1d_graph = PositionalEncoding1D(self.pos_fourier_graph_dim)     #fourier encoding for input
+                        #(batch_size, x, ch)
+       
+        self.max_text_len = max_text_len
+
+        assert cond_drop_prob > 0.
+        self.cond_drop_prob = cond_drop_prob # classifier free guidance for transformers - @crowsonkb
+
+        self.start_token = nn.Parameter(torch.randn(dim))
+
+        # projecting to logits
+        self.logits_dim=logits_dim
+        self.init_norm = LayerNorm(dim)
+
+        self.layers = nn.ModuleList([])
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                
+                AttentionQKV(dim, causal = True, one_kv_head=one_kv_head,
+                          dim_head = dim_head, heads = heads, dropout = dropout),
+                AttentionQKV(dim, context_dim = text_embed_dim, dim_head = dim_head, heads = heads, dropout = dropout, one_kv_head=one_kv_head,),
+                
+                FeedForward(dim, mult = ff_mult, dropout = dropout)
+                
+            ]))
+
+        self.final_norm = LayerNorm(dim)
+
+        self.to_logits = nn.Linear(dim, self.logits_dim, bias = False)
+        
+
+    @torch.no_grad()
+    @eval_decorator
+    def generate(
+        self,
+        sequences=None,#conditioning
+         text_mask=None,
+        #texts,
+        *,
+        tokens_to_generate=32,
+        cond_scale = 3.,
+        filter_thres = 0.9,
+        temperature = 1.,
+        output=None, #should provide it with at least a start token
+    ):
+        device = next(self.parameters()).device
+
+        batch = sequences.shape[0]
+
+        image_seq_len=tokens_to_generate
+        
+        if output==None:
+            output= torch.randint (0,self.logits_dim, (batch,  1), device = device  )
+            print ("Since start token not provided, generating random token.")
+        
+        for _ in tqdm(range(image_seq_len)):
+            
+            
+            sampled  = self.forward_with_cond_scale(
+                
+                    sequences = sequences,
+                    text_mask = text_mask,
+                    output = output,
+                     
+                )
+            sampled=sampled[:, -1 ]
+            
+            filtered_logits = top_k(sampled, thres = filter_thres)
+            sampled = gumbel_sample(filtered_logits, temperature = temperature, dim = -1)
+            sampled = rearrange(sampled, 'b -> b 1')
+            
+            output = torch.cat((output, sampled), dim = -1)
+
+        return output
+
+
+    def forward_with_cond_scale(self, *args, cond_scale = 3, **kwargs):
+        logits = self.forward(*args, cond_drop_prob = 0., **kwargs)
+
+        if cond_scale == 1:
+            return logits
+
+        null_logits = self.forward(*args, cond_drop_prob = 1., **kwargs)
+        return null_logits + (logits - null_logits) * cond_scale
+
+    def forward(
+        self,
+        texts: List[str] = None,
+        sequences = None,
+        output=None,
+        text_mask = None,
+    
+        cond_drop_prob = None,
+        return_loss = False
+    ):
+       
+        cond_drop_prob = default(cond_drop_prob, self.cond_drop_prob)
+        device = next(self.parameters()).device
+        ########################## conditioning #################################### 
+        
+        cond_x=sequences.float().unsqueeze(2)
+
+        # encoding 
+        cond_x= self.fc1(cond_x)
+        cond_x=self.GELUact(cond_x)  
+        pos_fourier_xy=self.p_enc_1d(cond_x) 
+        cond_x=cond_x+pos_fourier_xy
+         
+        if return_loss:
+            labels  = output [:, 1:] #labels are non embedded
+        
+        output = self.token_embed(output.long())
+        
+        
+        pos_fourier_graph=self.p_enc_1d_graph( torch.ones (output.shape[0],
+                                                           output.shape[1],
+                                                          self.pos_fourier_graph_dim).to(device) )  
+  
+        output=output+pos_fourier_graph
+               
+        # enforce max text len
+
+        if not exists(text_mask):
+            text_mask = torch.ones(cond_x.shape[:2], dtype = torch.bool).to(device)
+            
+        cond_x, text_mask = map(lambda t: t[:, :self.max_text_len], (cond_x, text_mask))        
+
+        # classifier free guidance conditional dropout
+        batch=output.shape[0]
+        if cond_drop_prob > 0:
+            keep_mask = prob_mask_like((batch,), 1 - cond_drop_prob, device = device)
+            text_mask = rearrange(keep_mask, 'b -> b 1') & text_mask
+
+        x = self.to_dim (output)
+        
+        x = self.init_norm(x)
         for self_attn, cross_attn, ff in self.layers:
             x = self_attn(x) + x
             x = cross_attn(x, context = cond_x, context_mask = text_mask) + x
@@ -776,8 +1058,662 @@ class MoleculeTransformerSequence(nn.Module):
         loss = F.cross_entropy(
             rearrange(logits , 'b n c -> b c n'),
             labels ,
-           # ignore_index = 0
+            # ignore_index = 0
             )
         
         return loss
+
+############### transformer encoder ###################
+
+from functools import partial, wraps
+def maybe(fn):
+    @wraps(fn)
+    def inner(x, *args, **kwargs):
+        if not exists(x):
+            return x
+        return fn(x, *args, **kwargs)
+    return inner
+
+class AttentionQKV(nn.Module):
+    def __init__(
+        self,
+        dim,
+        *,
+        context_dim = None,
+        dim_head = 64,
+        heads = 8,
+        causal = False,
+        dropout = 0.,
+        norm_context = False,
+        one_kv_head=True,
+        use_null_kv=True,
+    ):
+        super().__init__()
+        self.causal = causal
+        self.scale = dim_head ** -0.5
+        self.norm = LayerNorm(dim)
+        self.use_null_kv=use_null_kv
+        
+        self.heads=heads
+
+        context_dim = default(context_dim, dim)
+        self.norm_context = LayerNorm(context_dim) if norm_context else nn.Identity()
+        
+        self.one_kv_head = one_kv_head #If true: Use one KV head, multiple query heads
+
+        # needed for classifier free guidance for transformers
+        # by @crowsonkb, adopted by the paper
+        
+        q_dim = k_dim = dim_head * heads
+        v_dim = out_dim = dim_head * heads
+
+        # one-headed key / value attention, from Shazeer's multi-query paper, adopted by Alphacode and PaLM
+        # https://arxiv.org/abs/1911.02150 - only have one head for the key / values, multi-headed queries
+        self.one_kv_head = one_kv_head
+        if one_kv_head:
+            k_dim = dim_head
+            v_dim = dim_head
+            out_dim = v_dim * heads
+
+        self.null_k = nn.Parameter(torch.randn(k_dim))
+        self.null_v = nn.Parameter(torch.randn(v_dim))
+        
+        self.to_q = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(dim, q_dim, bias = False),
+            Rearrange('b n (h d) -> b h n d', h = heads)
+        )
+        self.to_k = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(context_dim, k_dim, bias = False)
+        )
+        self.to_v = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(context_dim, v_dim, bias = False)
+        )
+
+        self.to_out = nn.Sequential(
+            Rearrange('b h n d -> b n (h d)'),
+          
+            nn.Linear(out_dim, dim, bias = False),
+            LayerNorm(dim)
+        )
+
+    def forward(
+        self,
+        x,
+        context = None,
+        context_mask = None
+    ):
+        batch, device = x.shape[0], x.device
+
+        x = self.norm(x)
+
+        q = self.to_q(x) * self.scale
+
+        context = default(context, x)
+        context = self.norm_context(context)
+
+        k = self.to_k(context)
+        v = self.to_v(context)
+
+        if self.use_null_kv:
+            null_k = repeat(self.null_k, 'd -> b 1 d', b = batch)
+            k = torch.cat((null_k, k), dim = 1)
+            null_v = repeat(self.null_v, 'd -> b 1 d', b = batch)
+            v = torch.cat((null_v, v), dim = 1)
+
+        
+        if not self.one_kv_head:
+            k, v = map(lambda t: maybe(rearrange)(t, 'b n (h d) -> b h n d', h = self.heads), (k, v))
+            
+        kv_einsum_eq = 'b h j d' if not self.one_kv_head else 'b j d'
+
+        sim = einsum(f'b h i d, {kv_einsum_eq} -> b h i j', q, k) #* scale
+
+        mask_value = -torch.finfo(sim.dtype).max
+
+        if exists(context_mask):
+            if self.use_null_kv:
+                context_mask = F.pad(context_mask, (1, 0), value = True)
+            
+            #original
+            #context_mask = rearrange(context_mask, 'b j -> b 1 1 j')
+            
+            if context_mask.ndim == 2:#original ... 
+                #attn_mask = rearrange(attn_mask, 'i j -> 1 1 i j')
+                context_mask = rearrange(context_mask, 'b j -> b 1 1 j')
+            #elif context_mask.ndim == 3:#not sure if works...
+            #    #attn_mask = rearrange(attn_mask, 'h i j -> 1 h i j')
+            #    context_mask = rearrange(context_mask, 'b j h -> b 1 j h')
+            #context_mask = rearrange(context_mask, 'b j -> b 1 1 j')
+           
+            sim = sim.masked_fill(~context_mask, mask_value)
+            #dots = dots.masked_fill(~input_mask, mask_value)
+            
+        if self.causal:
+            i, j = sim.shape[-2:]
+            causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
+            sim = sim.masked_fill(causal_mask, mask_value)
+            
+            #causal_mask = torch.ones((i, j), dtype = torch.bool, device = device).triu(j - i + 1)
+            #dots = dots.masked_fill(causal_mask, mask_value)            
+
+        attn = sim.softmax(dim = -1, dtype = torch.float32)
+       
+        out = einsum(f'b h i j, {kv_einsum_eq} -> b h i d', attn, v)
+
+        return self.to_out(out)
     
+#######################################################################
+
+class MoleculeTransformerSequenceEncoder(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        depth,
+        logits_dim=32, 
+        logits_dim_length = None , #if None entire length is used. Otherwise, max_length is projected to logits_dim_length
+        max_length = None,         #see previous - OUTPUT IS (b, logits_dim, logits_dim_length)
+        max_tokens = 32, #max tokens for embedding layer
+        dim_head = 64,
+        heads = 8,
+        dropout = 0.,
+        ff_mult = 4,
+      
+        embed_dim = 16,
+     
+        padding_token=0,#will be used to create mask
+
+    ):
+        super().__init__()
+
+      #  pos_fourier_graph_dim=dim
+        self.padding_token=padding_token
+     
+        self.embed_dim=embed_dim #embedding dim of sequence
+        self.max_length=max_length
+        self.logits_dim_length=logits_dim_length
+
+        self.GELUact= nn.GELU()
+        ################
+        
+        self.p_enc_1d_graph = PositionalEncoding1D(self.embed_dim)     #fourier encoding for input
+                        #(batch_size, x, ch)
+       
+        # projecting to logits
+        self.logits_dim = logits_dim
+        self.init_norm  = LayerNorm(dim)
+
+        self.layers = nn.ModuleList([])
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                #AttentionQKV(dim, causal = False, 
+                #          dim_head = dim_head, heads = heads, dropout = dropout),
+                MultiheadAttention(dim, heads, dropout=dropout, batch_first=True),
+                #Attention(dim, context_dim = text_embed_dim, dim_head = dim_head, heads = heads, dropout = dropout),
+                FeedForward(dim, mult = ff_mult, dropout = dropout) 
+            ]))
+
+        self.final_norm = LayerNorm(dim)
+         
+        #sequence to embedding    
+        self.token_embed = nn.Embedding(max_tokens, embed_dim)
+        #embedding to dim
+        self.to_dim = nn.Linear( self.embed_dim, dim, bias = False)
+        #dim to logits
+        self.to_logits = nn.Linear(dim, self.logits_dim, bias = False)
+        
+        if exists (self.logits_dim_length):
+            assert exists (self.max_length), 'max_length and logits_dim_length must be set to nonzero value'
+            self.to_logits_dim_length = nn.Linear(self.max_length, self.logits_dim_length, bias = False)
+
+    def forward(
+        self,
+    
+        input_sequence,
+        text_mask = None,
+        return_hidden = False,
+        squeeze_output=False,
+    
+    ):
+    
+        device = next(self.parameters()).device
+        ########################## conditioning #################################### 
+       
+        output = self.token_embed(input_sequence)   
+        
+        pos_fourier_graph=self.p_enc_1d_graph( torch.ones (output.shape[0],
+                                                           output.shape[1],
+                                                           self.embed_dim).to(device) )  
+  
+        output=output+pos_fourier_graph
+    
+        x = self.to_dim (output)
+    
+        if exists (self.max_length):  # enforce max text len
+            if not exists(text_mask):
+                text_mask = torch.ones(x.shape[:2], dtype = torch.bool).to(device)
+                text_mask = input_sequence.eq(self.padding_token) #use  0 will turn to True, others to False. All values with True are masked out.
+            
+        x, text_mask = map(lambda t: t[:, :self.max_length], (x, text_mask))     
+       
+        x = self.init_norm(x)
+        #for self_attn, cross_attn, ff in self.layers:
+        for self_attn, ff in self.layers:
+            #x = self_attn(x, context_mask = text_mask) + x
+            attout, _ = self_attn(x, x, x, key_padding_mask  = text_mask)
+            x= attout + x
+            
+            #x = cross_attn(x, context = cond_x, context_mask = text_mask) + x
+            x = ff(x) + x
+
+        x = self.final_norm(x)
+
+        # to logits
+        logits = self.to_logits(x)
+        
+        if exists(self.logits_dim_length):
+            logits=logits.permute (0,2,1)
+            logits = self.to_logits_dim_length(logits)
+            
+         
+        if return_hidden:
+            
+            return  x
+    
+        else:
+            if squeeze_output:
+                logits=logits.squeeze()
+            
+            return logits
+        
+        
+################
+
+class MoleculeTransformerGPT(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        depth,
+        max_tokens=32,
+        logits_dim=32, 
+        dim_head = 64,
+        heads = 8,
+        dropout = 0.,
+        ff_mult = 4,
+        embed_dim = 16, #for input sequence
+        text_embed_dim = 16,# None, #not used 
+        max_text_len = 128,
+        one_kv_head=True,
+        concat_pos_encoding = False, #if True, then pos encoding will be added to the input; and pos_fourier_graph_dim=embed_dim
+        pos_fourier_graph_dim  = None,  #only used if concat_pos_encoding == True
+        use_null_kv=True, #use null_kv for CFG
+        conv_kernel=0, #if >0 then use conv in FF layer, at beginning and end
+    ):
+        super().__init__()
+
+        # pos_fourier_graph_dim=embed_dim
+        self.embed_dim = embed_dim
+        self.concat_pos_encoding=concat_pos_encoding
+        self.use_null_kv=use_null_kv
+        #  self.text_embed_dim =  text_embed_dim 
+        if concat_pos_encoding == False:
+            self.pos_fourier_graph_dim=embed_dim
+        else:
+            self.pos_fourier_graph_dim=pos_fourier_graph_dim
+            assert pos_fourier_graph_dim !=None, "pos_fourier_graph_dim has to be set if concatenating pos embedding"
+            print ("Concatenate positional encoding...")
+
+        #sequence to embedding    
+        self.token_embed = nn.Embedding(max_tokens, embed_dim)
+        #embedding to dim
+        
+        dim_in = self.embed_dim + self.concat_pos_encoding*self.pos_fourier_graph_dim
+        self.to_dim = nn.Linear(dim_in, 
+                                dim, bias = False)
+        print ("Input dimension (signal and pos encoding): ", dim_in)
+        
+            
+        self.fc1 = nn.Linear( 1,  text_embed_dim)  # INPUT DIM (last), OUTPUT DIM, last. This converts sequence conditioning to higher dimension -- NOT USED, TODO: Remove
+        self.GELUact= nn.GELU()
+        ################
+        self.p_enc_1d_graph = PositionalEncoding1D(self.pos_fourier_graph_dim)     #fourier encoding for input
+                        #(batch_size, x, ch)
+       
+        self.max_text_len = max_text_len
+
+         # projecting to logits
+        self.logits_dim=logits_dim
+        self.init_norm = LayerNorm(dim)
+
+        self.layers = nn.ModuleList([])
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                
+                AttentionQKV(dim, causal = True, one_kv_head=one_kv_head,
+                          dim_head = dim_head, heads = heads, dropout = dropout, 
+                            use_null_kv=self.use_null_kv),
+                #AttentionQKV(dim, context_dim = text_embed_dim, dim_head = dim_head, heads = heads, dropout = dropout, one_kv_head=one_kv_head,),
+                #FeedForward(dim, mult = ff_mult, dropout = dropout)
+                FeedForward(dim, mult = ff_mult, dropout = dropout) if conv_kernel==0 else FeedForward_CNN (dim,  mult = ff_mult, dropout = dropout, conv_kernel=conv_kernel  )               
+            ]))
+
+        self.final_norm = LayerNorm(dim)
+        self.to_logits = nn.Linear(dim, self.logits_dim, bias = False)
+
+    @torch.no_grad()
+    @eval_decorator
+    def generate(
+        self,
+        *,
+        output=None, #should provide it with at least a start token
+        tokens_to_generate=32,
+        filter_thres = 0.9,
+        temperature = 1.,
+       
+        use_gumbel_sample=True, #whether or not ot use gumbel sampling 
+    ):
+        device = next(self.parameters()).device
+
+        batch = output.shape[0]
+
+        image_seq_len=tokens_to_generate
+        
+        if output==None:
+            output= torch.randint (0,self.logits_dim, (batch,  1), device = device  )
+            print ("Since start token not provided, generating random token.")
+        
+        for _ in tqdm(range(image_seq_len)):
+            
+            sampled  = self.forward(
+                output = output,
+                )
+            sampled=sampled[:, -1 ]
+            
+            if use_gumbel_sample:
+                filtered_logits = top_k(sampled, thres = filter_thres)
+                sampled = gumbel_sample(filtered_logits, temperature = temperature, dim = -1)
+                sampled = rearrange(sampled, 'b -> b 1')
+            else:
+                sampled = sampled.argmax(dim = -1)
+                sampled = rearrange(sampled, 'b -> b 1')
+                
+            output = torch.cat((output, sampled), dim = -1)
+
+        return output
+ 
+    def forward(
+        self,
+        output=None,
+        return_loss = False,
+        ignore_padding_zeros=False,
+        mask_prob=0.,# if > 0: Apply BERT style LLM mask
+        context_mask = None,
+        
+    ):
+       
+        device = next(self.parameters()).device
+        
+        if return_loss:
+            labels  = output [:, 1:] #labels are non embedded
+        
+        output = self.token_embed(output.long())
+        
+        pos_fourier_graph=self.p_enc_1d_graph( torch.ones (output.shape[0],
+                                                           output.shape[1],
+                                                          self.pos_fourier_graph_dim).to(device) )  
+                                    #(batch_size, x, ch)
+            
+            
+        if self.concat_pos_encoding == False: #if False then additive ... 
+            output=output+pos_fourier_graph
+        else:
+            output= torch.cat((output, pos_fourier_graph), dim = -1)  
+            
+        batch=output.shape[0]
+       
+        x = self.to_dim (output)
+        
+        x = self.init_norm(x)
+       
+        
+        #Apply BERT style LLM mask if selected
+        
+        if mask_prob > 0.:
+            rand = torch.randn( (output.shape[0], x.shape[1]), device = x.device)
+            rand[:, 0] = -torch.finfo(rand.dtype).max # first token should not be masked out
+            
+            num_mask = min(int(output.shape[1] * mask_prob), output.shape[1] - 1)
+            
+            indices = rand.topk(num_mask, dim = -1).indices #torch.topk
+                                    #Returns the k largest elements of the given 
+                                    #input tensor along a given dimension
+                    
+            context_mask = ~torch.zeros_like(output[:,:,0]).squeeze().scatter(1, indices, 1.).bool()
+                            #torch.scatter(input, dim, index, src) 
+                            #the ones selected by random via indices, i.e. 1s, are going to be False
+            
+            #now repeat in channel direction
+            #context_mask = repeat(context_mask, 'b n -> b n c', c = output.shape[2])
+            
+            #sim = sim.masked_fill(~context_mask, mask_value)
+            
+            #kwargs.update(self_attn_context_mask = mask)  
+            
+        
+        
+        
+        for self_attn, ff in self.layers:
+            x = self_attn(x, context_mask=context_mask) + x
+            x = ff(x) + x
+        x = self.final_norm(x)
+
+        # to logits
+        logits = self.to_logits(x)
+         
+        if not return_loss:
+            return logits
+        
+        logits=logits[:,:-1,:]
+       
+        if ignore_padding_zeros:
+            loss = F.cross_entropy(
+                rearrange(logits , 'b n c -> b c n'),
+                labels ,
+                ignore_index = 0,
+                )            
+        else:
+            
+            loss = F.cross_entropy(
+                rearrange(logits , 'b n c -> b c n'),
+                labels ,
+                #ignore_index = 0
+                )
+
+        return loss
+
+    
+######################### PyTorch implementation of GPT #########################
+#There may be a bug in the MHA module in PyTorch (needs to be tested)
+
+class MoleculeTransformerGPTPyTorch(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        depth,
+        max_tokens=32,
+        logits_dim=32, 
+        dim_head = 64,
+        heads = 8,
+        dropout = 0.,
+        ff_mult = 4,
+        embed_dim = 16, #for input sequence
+        text_embed_dim = None, #not used 
+        max_text_len = 128,
+        one_kv_head=True,
+        concat_pos_encoding = False, #if True, then pos encoding will be added to the input; and pos_fourier_graph_dim=embed_dim
+        pos_fourier_graph_dim  = None,  #only used if concat_pos_encoding == True
+    ):
+        super().__init__()
+
+       # pos_fourier_graph_dim=embed_dim
+        self.embed_dim = embed_dim
+        self.concat_pos_encoding=concat_pos_encoding
+        #  self.text_embed_dim =  text_embed_dim 
+        if concat_pos_encoding == False:
+            self.pos_fourier_graph_dim=embed_dim
+        else:
+            self.pos_fourier_graph_dim=pos_fourier_graph_dim
+            assert pos_fourier_graph_dim !=None, "pos_fourier_graph_dim has to be set if concatenating pos embedding"
+            print ("Concatenate positional encoding...")
+
+        #sequence to embedding    
+        self.token_embed = nn.Embedding(max_tokens, embed_dim)
+        #embedding to dim
+        
+        dim_in = self.embed_dim + self.concat_pos_encoding*self.pos_fourier_graph_dim
+        self.to_dim = nn.Linear(dim_in, 
+                                dim, bias = False)
+        print ("Input dimension (signal and pos encoding): ", dim_in)
+        
+            
+        self.fc1 = nn.Linear( 1,  text_embed_dim)  # INPUT DIM (last), OUTPUT DIM, last. This converts sequence conditioning to higher dimension
+        self.GELUact= nn.GELU()
+        ################
+        self.p_enc_1d_graph = PositionalEncoding1D(self.pos_fourier_graph_dim)     #fourier encoding for input
+                        #(batch_size, x, ch)
+       
+        self.max_text_len = max_text_len
+
+         # projecting to logits
+        self.logits_dim=logits_dim
+        self.init_norm = LayerNorm(dim)
+
+        self.layers = nn.ModuleList([])
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                MultiheadAttention(dim, heads, dropout=dropout, batch_first=True),
+                
+                #AttentionQKV(dim, causal = True, one_kv_head=one_kv_head,
+                #          dim_head = dim_head, heads = heads, dropout = dropout),
+                #AttentionQKV(dim, context_dim = text_embed_dim, dim_head = dim_head, heads = heads, dropout = dropout, one_kv_head=one_kv_head,),
+                FeedForward(dim, mult = ff_mult, dropout = dropout)
+                
+            ]))
+
+        self.final_norm = LayerNorm(dim)
+        self.to_logits = nn.Linear(dim, self.logits_dim, bias = False)
+
+    @torch.no_grad()
+    @eval_decorator
+    def generate(
+        self,
+        *,
+        tokens_to_generate=32,
+        filter_thres = 0.9,
+        temperature = 1.,
+        output=None, #should provide it with at least a start token
+        use_gumbel_sample=True, #whether or not ot use gumbel sampling 
+    ):
+        device = next(self.parameters()).device
+
+        batch = output.shape[0]
+
+        image_seq_len=tokens_to_generate
+        
+        if output==None:
+            output= torch.randint (0,self.logits_dim, (batch,  1), device = device  )
+            print ("Since start token not provided, generating random token.")
+        
+        for _ in tqdm(range(image_seq_len)):
+            
+            sampled  = self.forward(
+                output = output,
+                )
+            sampled=sampled[:, -1 ]
+            
+            if use_gumbel_sample:
+                filtered_logits = top_k(sampled, thres = filter_thres)
+                sampled = gumbel_sample(filtered_logits, temperature = temperature, dim = -1)
+                sampled = rearrange(sampled, 'b -> b 1')
+            else:
+                sampled = sampled.argmax(dim = -1)
+                sampled = rearrange(sampled, 'b -> b 1')
+                
+            output = torch.cat((output, sampled), dim = -1)
+
+        return output
+ 
+    def forward(
+        self,
+        output=None,
+        return_loss = False,
+        ignore_padding_zeros=False,
+    ):
+       
+        device = next(self.parameters()).device
+        
+        if return_loss:
+            labels  = output [:, 1:] #labels are non embedded
+        
+        output = self.token_embed(output.long())
+        
+        pos_fourier_graph=self.p_enc_1d_graph( torch.ones (output.shape[0],
+                                                           output.shape[1],
+                                                          self.pos_fourier_graph_dim).to(device) )  
+                                    #(batch_size, x, ch)
+            
+            
+        if self.concat_pos_encoding == False: #if False then additive ... 
+            output=output+pos_fourier_graph
+        else:
+            output= torch.cat((output, pos_fourier_graph), dim = -1)  
+            
+        batch=output.shape[0]
+       
+        x = self.to_dim (output)
+        
+        x = self.init_norm(x)
+       
+        for self_attn, ff in self.layers:
+            #x = self_attn(x, x, x, ) + x
+            #attout, _ = self_attn(x, x, x, is_causal = True )
+            attout  = self_attn(x, x, x, is_causal = True, need_weights = False)[0]
+            x= attout + x
+            
+            x = ff(x) + x
+        x = self.final_norm(x)
+
+        # to logits
+        logits = self.to_logits(x)
+         
+        if not return_loss:
+            return logits
+        
+        logits=logits[:,:-1,:]
+       
+        if ignore_padding_zeros:
+            loss = F.cross_entropy(
+                rearrange(logits , 'b n c -> b c n'),
+                labels ,
+                ignore_index = 0,
+                )            
+        else:
+            
+            loss = F.cross_entropy(
+                rearrange(logits , 'b n c -> b c n'),
+                labels ,
+                #ignore_index = 0
+                )
+
+        return loss
+    
+    
+##
