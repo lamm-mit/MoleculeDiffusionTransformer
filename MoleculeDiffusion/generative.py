@@ -15,6 +15,7 @@ from .modules import STFT, SinusoidalEmbedding, XUNet1d, rand_bool, Encoder1d
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing import text, sequence
 from tensorflow.keras.preprocessing.text import Tokenizer
+import numpy as np
 
 from sklearn.metrics import r2_score
 import time
@@ -398,8 +399,7 @@ def sample_loop_forward (model,device,
             return R2
     return R2
 
-
-#################
+###############################################################################
 
 def predict_properties_from_SMILES (model,device, SMILES, scaler,
                 
@@ -454,163 +454,6 @@ def predict_properties_from_SMILES (model,device, SMILES, scaler,
 # Generative inverse models ######################################
 ##################################################################
 
-'''
-#Diffusion
-class QMDiffusion(nn.Module):
-
-    def __init__(self,  
-               
-                 max_length=1024,
-                 channels=128,
-                 pred_dim=1,
-                
-                 context_embedding_max_length=32,
-                 unet_type='cfg', #"base"
-                 pos_emb_fourier=True,
-                 pos_emb_fourier_add=False,
-                 text_embed_dim = 1024,
-                 
-                 embed_dim_position=64,
-                 
-                 unet=None,
-               
-                ):
-        super(QMDiffusion, self).__init__()
-        
-        self.unet_type=unet_type    
-        print ("Using unet type: ", self.unet_type)
-        self.fc1 = nn.Linear( 1,  text_embed_dim)  # INPUT DIM (last), OUTPUT DIM, last
-        
-        self.GELUact= nn.GELU()
-        
-        self.pos_emb_fourier=pos_emb_fourier
-        self.pos_emb_fourier_add=pos_emb_fourier_add
-        
-        if self.pos_emb_fourier:
-            if self.pos_emb_fourier_add==False:
-                text_embed_dim=text_embed_dim+embed_dim_position
-                
-            self.p_enc_1d = PositionalEncoding1D(embed_dim_position)        
-        
-        self.max_length= max_length
-        self.pred_dim=pred_dim
-         
-        if self.unet_type=='cfg':
-            if exists (unet):
-                self.unet=unet
-            else:
-                self.unet = XUNet1d( type=unet_type,
-                        in_channels=pred_dim,
-                        pre_transformer=2, #number of self attention pre-transformer layers before downsampling
-                        channels=channels,
-                        patch_size=1,
-                        multipliers=[1, 2, 4,   ],
-                        factors    =[4, 4,   ],
-                        num_blocks= [3, 3,   ],
-                        attentions= [4, 4,   ],
-                        attention_heads=8,
-                        attention_features=64,
-                        attention_multiplier=2,
-                        attention_use_rel_pos=False,
-                        context_embedding_features=text_embed_dim ,
-                        context_embedding_max_length= context_embedding_max_length,
-                )
-
-            # use KDiffusion
-            self.diffusion = XDiffusion_x(type='k',
-                net=self.unet,
-                sigma_distribution=LogNormalDistribution(mean = -1.2, std = 1.2),
-                sigma_data=0.1,
-                dynamic_threshold=0.0,
-            )
-
-        if self.unet_type=='base':
-            if exists (unet):
-                self.unet=unet
-            else:
-                self.unet = XUNet1d( type=unet_type,
-                    in_channels=pred_dim,
-                    pre_transformer=2, #number of self attention pre-transformer layers before downsampling
-                    channels=channels,
-                    patch_size=8,
-                    multipliers=[1, 2, 4,   ],
-                    factors    =[4, 4,   ],
-                    num_blocks= [2, 2,   ],
-                    attentions= [1, 1,   ],
-                    attention_heads=8,
-                    attention_features=64,
-                    attention_multiplier=2,
-                    attention_use_rel_pos=False,
-                    )
-
-            self.diffusion = XDiffusion_x(type='k',
-                net=self.unet,
-                sigma_distribution=LogNormalDistribution(mean = -1.2, std = 1.2),
-                sigma_data=0.1,
-                dynamic_threshold=0.0,
-            )
-          
-    def forward(self, sequences, output ): #sequences=conditioning, output=prediction 
-         
-        x= sequences.float().unsqueeze(2)
-        
-        x= self.fc1(x)
-        x= self.GELUact(x) 
-        
-        if self.pos_emb_fourier:
-            pos_fourier_xy=self.p_enc_1d(x) 
- 
-            if self.pos_emb_fourier_add:
-                x=x+pos_fourier_xy
-            else:
-                x= torch.cat( (x,   pos_fourier_xy), 2)
-        ########################## END conditioning ####################################
-           
-        if self.unet_type=='cfg':
-            loss = self.diffusion(output,embedding=x)
-        if self.unet_type=='base':
-            loss = self.diffusion(output )
-        
-        return loss
-    
-    def sample (self, sequences,device,cond_scale=7.5,timesteps=100,clamp=False,):
-    
-        ########################## conditioning ####################################
-         
-        x=sequences.float().unsqueeze(2)
-        x= self.fc1(x)
-        x= self.GELUact(x) 
-        
-        if self.pos_emb_fourier:
-            
-            pos_fourier_xy=self.p_enc_1d(x) 
-            
-            if self.pos_emb_fourier_add:
-                x=x+pos_fourier_xy
-            
-            else:
-                x= torch.cat( (x,   pos_fourier_xy), 2)
-        ########################## END conditioning ####################################
-            
-        noise = torch.randn(x.shape[0], self.pred_dim,  self.max_length)  .to(device)
-        
-        if self.unet_type=='cfg':
-        
-            output = self.diffusion.sample(num_steps=timesteps, # Suggested range 2-100, higher better quality but takes longer
-                sampler=ADPM2Sampler(rho=1),                                   
-               sigma_schedule=KarrasSchedule(sigma_min=0.001, sigma_max=9.0, rho=3.),clamp=clamp,
-                                           noise = noise,embedding=x, embedding_scale=cond_scale)
-            
-        if self.unet_type=='base':
-            
-            output = self.diffusion.sample(num_steps=timesteps, # Suggested range 2-100, higher better quality but takes longer
-                sampler=ADPM2Sampler(rho=1),
-                
-                sigma_schedule=KarrasSchedule(sigma_min=0.001, sigma_max=9.0, rho=3.),clamp=clamp,
-                                           noise = noise, )
-             
-        return output 
-''' 
 from math import floor, log, pi
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
@@ -639,158 +482,9 @@ def pad_sequence_lastchannel (output_xyz, max_length_l, device):         #pad
     output=torch.zeros((output_xyz.shape[0] , output_xyz.shape[1], max_length_l )).to(device)
     output[:,:,:output_xyz.shape[-1]]=output_xyz  
     return output.to(device)
-'''
-class QMDiffusionForward(nn.Module):
 
-    def __init__(self,  
-                 max_length=1024,
-                 channels=128,
-                 pred_dim=1,
-                 unet=None,
-                 context_embedding_max_length=32,
-                 unet_type='cfg', #"base"
-                 pos_emb_fourier=True,
-                 pos_emb_fourier_add=False,
-                 text_embed_dim = 1024,
-                 embed_dim_position=64,
-                ):
-        super(QMDiffusionForward, self).__init__()
-        
-        self.unet_type=unet_type    
-        
-        self.fc1 = nn.Linear( 1,  text_embed_dim)  # INPUT DIM (last), OUTPUT DIM, last
-        
-        self.GELUact= nn.GELU()
-        
-        self.pos_emb_fourier=pos_emb_fourier
-        self.pos_emb_fourier_add=pos_emb_fourier_add
-        
-        if self.pos_emb_fourier:
-            if self.pos_emb_fourier_add==False:
-                text_embed_dim=text_embed_dim+embed_dim_position
-                
-            self.p_enc_1d = PositionalEncoding1D(embed_dim_position)        
-        
-        self.max_length= max_length
-        self.pred_dim=pred_dim
-        
-        if self.unet_type=='cfg':
-            if exists (unet):
-                self.unet=unet
-            else:
-                self.unet = XUNet1d( type=unet_type,
-                    in_channels=pred_dim,
-                    channels=channels,
-                    patch_size=4,
-                    multipliers=[1, 2, 4,   ],
-                    factors    =[4, 4,   ],
-                    num_blocks= [3, 3,   ],
-                    attentions= [2, 2,   ],
-                    attention_heads=8,
-                    attention_features=64,
-                    attention_multiplier=2,
-                    attention_use_rel_pos=False,
-                    context_embedding_features=text_embed_dim ,
-                    context_embedding_max_length= context_embedding_max_length ,
-                )
+###############################################################################
 
-            # use KDiffusion
-            self.diffusion = XDiffusion_x(type='k',
-                net=self.unet,
-                sigma_distribution=LogNormalDistribution(mean = -1.2, std = 1.2),
-                sigma_data=0.1,
-                dynamic_threshold=0.0,
-            )
-
-        if self.unet_type=='base':
-            if exists (unet):
-                self.unet=unet
-            else:
-                self.unet = XUNet1d( type=unet_type,
-                        in_channels=pred_dim,
-                        channels=channels,
-                        patch_size=8,
-                        multipliers=[1, 2, 4,   ],
-                        factors    =[4, 4,   ],
-                        num_blocks= [2, 2,   ],
-                        attentions= [1, 1,   ],
-                        attention_heads=8,
-                        attention_features=64,
-                        attention_multiplier=2,
-                        attention_use_rel_pos=False,
-                )
-
-            # use KDiffusion
-            self.diffusion = XDiffusion_x(type='k',
-                net=self.unet,
-                sigma_distribution=LogNormalDistribution(mean = -1.2, std = 1.2),
-                sigma_data=0.1,
-                dynamic_threshold=0.0,
-            )
-          
-        
-    def forward(self, sequences, output ): #sequences=conditioning, output=prediction 
-         
-        ########################## conditioning ####################################
-        x= sequences.float().unsqueeze(2)
-        
-        x= self.fc1(x)
-        x= self.GELUact(x) 
-        
-        if self.pos_emb_fourier:
-            pos_fourier_xy=self.p_enc_1d(x) 
- 
-            if self.pos_emb_fourier_add:
-                x=x+pos_fourier_xy
-            
-            else:
-                x= torch.cat( (x,   pos_fourier_xy), 2)
-        ########################## END conditioning ####################################
-           
-        if self.unet_type=='cfg':
-            loss = self.diffusion(output,embedding=x)
-        if self.unet_type=='base':
-            loss = self.diffusion(output )
-        
-        return loss
-    
-    
-    def sample (self, sequences,device,cond_scale=1.,timesteps=100,clamp=False,):
-    
-        ########################## conditioning ####################################
-        x=sequences.float().unsqueeze(2)
-        x= self.fc1(x)
-        x= self.GELUact(x) 
-        
-        if self.pos_emb_fourier:
-            
-            pos_fourier_xy=self.p_enc_1d(x) 
-             
-            if self.pos_emb_fourier_add:
-                x=x+pos_fourier_xy
-            
-            else:
-                x= torch.cat( (x,   pos_fourier_xy), 2)
-        ########################## END conditioning ####################################
-            
-        noise = torch.randn(x.shape[0], self.pred_dim,  self.max_length)  .to(device)
-        
-        if self.unet_type=='cfg':
-        
-            output = self.diffusion.sample(num_steps=timesteps, # Suggested range 2-100, higher better quality but takes longer
-                sampler=ADPM2Sampler(rho=1),                                   
-               sigma_schedule=KarrasSchedule(sigma_min=0.001, sigma_max=9.0, rho=3.),clamp=clamp,
-                                           noise = noise,embedding=x, embedding_scale=cond_scale)
-            
-        if self.unet_type=='base':
-            
-            output = self.diffusion.sample(num_steps=timesteps, # Suggested range 2-100, higher better quality but takes longer
-                sampler=ADPM2Sampler(rho=1),
-                
-                sigma_schedule=KarrasSchedule(sigma_min=0.001, sigma_max=9.0, rho=3.),clamp=clamp,
-                                           noise = noise, )
-        return output
-'''  
 def train_loop_forward (model,
                 train_loader,test_loader,
                 optimizer=None,
@@ -965,7 +659,7 @@ def sample_loop_forward (model,device,
     return R2
 
 
-#################
+###############################################################################
 
 def predict_properties_from_SMILES (model,device, SMILES, scaler,
                 
@@ -1588,16 +1282,22 @@ def sample_loop_generative (model,device,
                 plt.ylabel ('Prediction')
                 plt.show ()   
                 print ('R2 score_overall= ', r2_score (l_res, l_GT) )  
+        
+                if total_count>0:
+                    novel_frac= novel_count/total_count
+                else:
+                    novel_frac=0
                 
-                print ("Fraction of novel structures: ", novel_count/num_samples, f"{novel_count} out of {num_samples}")
+                print ("Fraction of novel structures: ", novel_frac, f"{novel_count} out of {num_samples}")
                 
         steps=steps+1
         if steps>num_batches-1:
             break
 
 
-###################################################
-#Trainer and samler for transformer
+###############################################################################
+#Trainer and sampler for transformer
+###############################################################################
 
 def train_loop_transformer (model,
                 train_loader,test_loader, device,
@@ -1698,7 +1398,7 @@ def train_loop_transformer (model,
 
     return loss_list
 
-#### sample
+#### sampler
 
 def sample_loop_transformer (model,device,
                 train_loader,
@@ -1735,6 +1435,7 @@ def sample_loop_transformer (model,device,
             start_token=torch.Tensor(start_char_token).to(device)
             end_token  =torch.Tensor(end_char_token).to(device)
             start_token=repeat(start_token, '1 1-> b 1', b = X_train_batch.shape[0])
+            # 
             
             result = model.generate(sequences=y_train_batch,#conditioning
                                     output=start_token,
@@ -1786,13 +1487,12 @@ def sample_loop_transformer (model,device,
                         if novel_flag:
                             novel_count=novel_count+1 
                     
-                    prop,prop_unscaled=predict_properties_from_SMILES (model_forward,device, SMILES=[GT_s,res],
-                             X_norm_factor=X_norm_factor,
-                             cond_scales=[1.], #list of cond scales - each sampled...
-                             scaler=scaler,
-                             timesteps=100,
+                    prop,prop_unscaled=predict_properties_from_SMILES_transformer (model_forward,device, SMILES=[GT_s,res],
+                           
+                             scaler=scaler,  start_char=start_char,end_char=end_char,
+                       
                              flag=0, 
-                             clamp=False,
+                        
                              tokenizer_X=tokenizer_X,
                              draw_molecules=False,
                              draw_all=False,mols_per_row=8,
@@ -1821,14 +1521,18 @@ def sample_loop_transformer (model,device,
                 plt.show ()   
                 print ('R2 score_overall= ', r2_score ( l_res, l_GT ) )
                 
-                print ("Fraction of novel structures: ", novel_count/total_count, 
+                if total_count>0:
+                    novel_frac= novel_count/total_count
+                else:
+                    novel_frac=0
+                print ("Fraction of novel structures: ", novel_frac, 
                        f"{novel_count} out of {total_count}")                    
                     
         steps=steps+1
         if steps>num_batches-1:
             break
 
-####################### additional helpers
+####################### additional helpers ###########################
     
 def add_start_end_char (X_data_temp, 
                         start_char='@',
@@ -1848,9 +1552,13 @@ def remove_start_end_token (string_input, start='@', end='$'):
 def remove_start_end_token_first (string_input, start='@', end='$'):
     i=string_input.find(start)
     j=string_input.find(end)
-    return string_input [i+1:j]
+     
+    if j<0: #no end token found
+        return string_input [i+1:]
+    else:
+        return string_input [i+1:j]    
     
-######################## inpaitining
+######################## inpaintining
 
 def encode_SMILES_into_one_hot (tokenizer_X,SMILES=['CCHHCC', 'CNC'], max_length=64, num_classes = 16):
     data_tokenized = tokenizer_X.texts_to_sequences(SMILES)
@@ -1965,6 +1673,7 @@ def generate_from_conditioning (model,device,
                  scaler=None,
                  X_norm_factor=1,
                  do_scale_input=False, #whether or not input needs to be scaled
+                 col_names = '',
                ):
     
     if do_scale_input:
@@ -2022,8 +1731,9 @@ def generate_from_conditioning (model,device,
         plt.xlabel ('GT')
         plt.ylabel ('Prediction')
         plt.show ()   
-        print ('R2 score_overall= ', r2_score (l_res, l_GT) )              
-            
+        print ('R2 score_overall= ', r2_score (l_res, l_GT) )  
+        
+        plot_results_as_barchart (prop[0,:], GT=y_train_batch.squeeze(0).cpu().numpy(), col_names=col_names, add_num_label=False)
             
     return novel_flag, prop[0,:], prop_unscaled[0,:]
 
@@ -2057,3 +1767,307 @@ def plot_results_as_barchart (cond_ex, GT=None, col_names='', add_num_label=Fals
     plt.axhline(y=0,linewidth=1, color='k')
 
     plt.show()
+    
+###############################################################################
+# transformer generative
+###############################################################################
+
+def generate_from_conditioning_transformer (model,device,
+                 conditioning=[[1, 3., 5., 4., 1, 3., 5., -2.,  1, 3., 5., 4.,  ]],
+                 model_forward=None,
+                 start_sequence=None,#starting sequence, if provided. Start token will be added at the beginning.
+                 cond_scales=1., #list of cond scales - each sampled...
+                 temperature=1, filter_thres=0.9,
+                 flag=0, 
+                 clamp=False,
+                 draw_molecules=False,
+                 prefix='./',
+                 tokenizer_X=None,
+                 ALL_SMILES=[''],
+                 scaler=None,
+                 X_norm_factor=1,
+                 start_char='', end_char='', start_char_token=0, end_char_token=0,
+                 do_scale_input=False, #whether or not input needs to be scaled
+                 tokens_to_generate = 32,
+                 col_names='',
+                                            
+               ):
+    
+    if do_scale_input:
+        y_train_batch = torch.Tensor (scaler.transform(conditioning )).to(device)
+    else:
+        y_train_batch = torch.Tensor (conditioning).to(device)
+  
+    start_token=torch.Tensor(start_char_token).to(device)
+    end_token  =torch.Tensor(end_char_token).to(device)
+    
+    if exists (start_sequence):
+        start_sequence=torch.Tensor (tokenizer_X.texts_to_sequences(start_sequence)).to(device)
+        start_token=torch.cat ( (start_token, start_sequence), 1) #add start_sequence
+        print ("Size of start_sequence: ", start_token.shape)
+
+    result = model.generate(sequences=y_train_batch,#conditioning
+                            output=start_token,
+                            tokens_to_generate=tokens_to_generate, #can also generate less....
+                            cond_scale = cond_scales , temperature=temperature,   filter_thres=filter_thres,
+                            )  
+
+    result=result.cpu().long().numpy()
+    
+    print (f"sample result {result.shape}, conditioning: {y_train_batch.shape}")
+            
+    result_untokenized=reverse_tokenize  (tokenizer_X, result, X_norm_factor=1)
+    print ("Result as SMILES: ", result_untokenized[0])
+            
+    if draw_molecules:
+        l_res=[]
+        i=0
+        res=remove_start_end_token_first ( result_untokenized[i], start_char, end_char)
+                     
+        #res= result_untokenized[i] 
+
+        novel_flag=is_novel (ALL_SMILES, res)
+
+        print ("SMILES result=", res, " is novel: ", novel_flag)
+
+        draw_and_save (smi =res, 
+                       GTsmile = None,
+                       fname=f'{prefix}/sample_fromcond_{flag}.png', add_Hs=False)
+
+        prop, prop_unscaled =predict_properties_from_SMILES_transformer (model_forward,device, SMILES=[res,res],scaler=scaler,
+                                               tokenizer_X=tokenizer_X,
+                                              # X_norm_factor=X_norm_factor,
+                                                                         start_char=start_char,end_char=end_char,
+
+             flag=0, 
+         
+             draw_molecules=False,
+                     draw_all=False,mols_per_row=8,
+           ) 
+        print (prop[0,:].shape, y_train_batch.squeeze(0).cpu().numpy().shape )
+        plot_results_as_barchart (prop[0,:], GT=y_train_batch.squeeze(0).cpu().numpy(), col_names=col_names, add_num_label=False)
+                                  
+        l_res=torch.Tensor (prop[0,:]).flatten().numpy()
+        l_GT=torch.Tensor (y_train_batch).flatten().cpu().numpy()
+        plt.plot (l_GT, l_res, 'r.')
+        plt.plot ([-1,1], [-1,1], 'k')
+        plt.axis('square')
+        plt.xlabel ('GT')
+        plt.ylabel ('Prediction')
+        plt.show ()   
+        print ('R2 score_overall= ', r2_score (l_res, l_GT) )              
+            
+    return novel_flag, prop[0,:], prop_unscaled[0,:]
+
+####################### Forward model: Transformer
+
+def predict_properties_from_SMILES_transformer (model,device, SMILES, scaler, start_char='@',end_char='$',
+                
+               # cond_scales=[7.5], #list of cond scales - each sampled...
+                
+              #  timesteps=100,
+                 flag=0, 
+               #  clamp=False,
+              #   X_norm_factor=1.,
+                 draw_molecules=False,
+                         draw_all=False,mols_per_row=8,
+                                    tokenizer_X=None,max_length = 64,context_embedding_max_length=12,
+                                    verbose=False,
+               ):
+    steps=0
+    
+    SMILES_=[]
+    for i in range (len (SMILES)):
+        SMILES_.append (start_char+SMILES[i]+end_char)
+    SMILES=SMILES_
+
+    if verbose:
+        print (f"Number of SMILES strings: {len (SMILES)}")
+    
+    data_tokenized = tokenizer_X.texts_to_sequences(SMILES)
+    data_tokenized = sequence.pad_sequences(data_tokenized,  maxlen=max_length, padding='post', truncating='post')  
+    
+    data_tokenized = data_tokenized#/X_norm_factor
+    data_tokenized = torch.Tensor (data_tokenized).long().to(device)
+    
+    if verbose:
+        print ("##########################################")
+    
+    print (data_tokenized.shape)
+    with torch.no_grad():
+        result=model ( data_tokenized)
+    result=result.squeeze().cpu().numpy()
+    result=result[:,:context_embedding_max_length]
+    
+    if verbose:
+        for i in range (len (SMILES)):
+            print (f"For {SMILES[i]}, result={result[i]}")
+        
+    result_unscaled=scaler.inverse_transform(result)
+    
+    if verbose:
+        for i in range (len (SMILES)):
+            print (f"For {SMILES[i]}, unscaled result={result_unscaled[i]}")
+        print ("##########################################")    
+    
+    return result,result_unscaled
+
+def train_loop_forward_transformer (model,device,
+                train_loader,test_loader,
+                optimizer=None,
+                print_every=10,
+                epochs= 300,
+                start_ep=0,
+                start_step=0,
+                save_loss_images=False,
+                print_loss=10,
+                num_samples=2,
+                save_model=False,
+                show_jointplot=False,
+                prefix='./',
+                loss_list=[],R2_list=[],
+                tokenizer_X=None,
+               ):
+    
+    steps=start_step
+    start = time.time()
+    
+    loss_total=0
+    for e in range(1, epochs+1):
+            start = time.time()
+
+            torch.cuda.empty_cache()
+           
+            train_epoch_loss = 0
+            model.train()
+            
+            for item  in tqdm (train_loader): #X=smiles, y=conditioning
+                 
+                X_train_batch= item[1].unsqueeze(1).to(device) #prediction is  properties
+                y_train_batch=item[0].squeeze().to(device) #SMILES is  input 
+                 
+                optimizer.zero_grad()
+                
+                pred=model ( y_train_batch.long ()  )#.squeeze()   #sequences=conditioning, output=prediction  SMILES
+                
+                loss = F.mse_loss(
+                    # logits, output
+                    pred, X_train_batch
+                    )     
+                
+                loss.backward( ) #sequences, output ): #sequences=conditioning, output=prediction 
+                
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+
+                optimizer.step()
+
+                loss_total=loss_total+loss.item()
+
+                if steps>0:
+                    if steps % print_loss == 0:
+                        norm_loss=loss_total/print_loss
+                        print (f"\nTOTAL LOSS at epoch={e}, step={steps}: {norm_loss}")
+
+                        loss_list.append (norm_loss)
+                        loss_total=0
+
+                        plt.plot (loss_list, label='Loss')
+                        plt.legend()
+
+
+                        if save_loss_images:
+                            outname = prefix+ f"loss_{e}_{steps}.jpg"
+                            plt.savefig(outname, dpi=200)
+                        plt.show()
+                        
+                        
+                        R2=sample_loop_forward_transformer (model,device ,
+                                test_loader,
+                                num_samples=num_samples, #how many samples produced every time tested.....
+                                show_jointplot=show_jointplot,
+                                tokenizer_X=tokenizer_X, 
+                                               )
+                        
+                        print (f"\n\n-------------------\nTime passed for {print_loss} at {steps} = {(time.time()-start)/60} mins\n-------------------")
+                        R2_list.append (R2)
+                        plt.plot (R2_list, label = 'R2')
+                        plt.legend()
+                        plt.show ()
+                        max_index=R2_list.index(max(R2_list))
+        
+                        print (f"########### R2_max={max (R2_list)} at {max_index}")
+                        
+                        start = time.time()
+                      
+                        if save_model:
+                           
+                            fname=f"{prefix}statedict_save-model-epoch_{e}.pt"
+                            torch.save(model.state_dict(), fname)
+                            print (f"Model saved: ", fname)
+                steps=steps+1
+                
+                
+    return loss_list,R2_list
+
+def sample_loop_forward_transformer (model,device,
+                 train_loader,
+                 tokenizer_X=None,
+             #    cond_scales=[7.5], #list of cond scales - each sampled...
+                 num_samples=2, #how many samples produced every time tested.....
+                 num_batches=1,
+                 flag=0, 
+                 show_jointplot=False,
+                 draw_molecules=False,
+                 draw_all=False,mols_per_row=8,
+                 context_embedding_max_length = 12,   
+                 prefix='./',
+               ):
+    steps=0
+    e=flag
+    
+    for item  in train_loader:
+            
+        X_train_batch= item[1] #smiles
+        y_train_batch=item[0].to(device)#properties
+
+        GT=X_train_batch.squeeze().cpu().numpy()  #smiles
+
+        num_samples = min (num_samples,y_train_batch.shape[0] )
+        
+
+        with torch.no_grad():
+                result=model ( y_train_batch.long ()  )
+
+        result=result.squeeze().cpu().numpy()
+
+        if show_jointplot:
+            sns.jointplot(y=result[:num_samples,:context_embedding_max_length].flatten(), x=GT[:num_samples,:context_embedding_max_length].flatten (), kind ='kde')
+            plt.show()
+            sns.jointplot(y=result[:num_samples,:context_embedding_max_length].flatten(), x=GT[:num_samples,:context_embedding_max_length].flatten (), kind ='scatter')
+            plt.show()
+        else:
+            plt.plot (result[:num_samples,:context_embedding_max_length].flatten(), GT[:num_samples,:context_embedding_max_length].flatten () , 'r.')
+            plt.show ()
+
+        R2=r2_score(result[:num_samples,:context_embedding_max_length].flatten(),  GT[:num_samples,:context_embedding_max_length].flatten ())
+       
+        print ("OVERALL R2: ", R2) #, f' R2_max={max (R2)} at {max_index}')
+
+        GT_smiles=y_train_batch.cpu().numpy() 
+        GT_untokenized=reverse_tokenize  (tokenizer_X, GT_smiles, X_norm_factor=1)
+    
+        if draw_molecules:
+            for i in range (num_samples):
+                draw_and_save (smi = GT_untokenized [i],
+                               fname=f'{prefix}/sample_{flag}_{i}.png', add_Hs=False)
+
+        if draw_all:
+            draw_and_save_set (smiles =  GT_untokenized [:num_samples],
+             fname=f'{prefix}/sample_all_{flag}.png',mols_per_row=mols_per_row,
+              figsize=1,
+            )
+                    
+        steps=steps+1
+        if steps>num_batches-1:
+            return R2
+    return R2
