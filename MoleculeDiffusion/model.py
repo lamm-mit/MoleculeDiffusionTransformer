@@ -16,9 +16,9 @@ from .utils import (
     downsample,
     exists,
     groupby,
-    to_list,
+    to_list, 
     upsample,
-)
+)#import various utils
 
 """
 Diffusion Classes (generic for 1d data)
