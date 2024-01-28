@@ -18,7 +18,7 @@ from tqdm.notebook import trange, tqdm
 
 def exists(val):
     return val is not None
-
+ 
 def default(val, d):
     return val if exists(val) else d
 
@@ -423,7 +423,7 @@ class PositionalEncodingPermute2D(nn.Module):
     def __init__(self, channels):
         """
         Accepts (batchsize, ch, x, y) instead of (batchsize, x, y, ch)
-        """
+        """  
         super(PositionalEncodingPermute2D, self).__init__()
         self.penc = PositionalEncoding2D(channels)
 
