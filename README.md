@@ -349,3 +349,21 @@ draw_and_save_set (smiles = ['CC(=CC(C)(C)CCCCCCCC(=O)O)C1CCC2C(=CC=C3CC(O)CC(O)
 #This function compates a predicted SMILES code with a ground truth one
 draw_and_save (smi = 'CC=C', GTsmile = 'CNC=C', fname='out.png', add_Hs=True)
 ```
+
+## Reference
+
+```bibtex
+@article{Luu2023GenerativeDESDiffusionTransformer,
+  title        = {Generative discovery of de novo chemical designs using diffusion modeling and transformer deep neural networks with application to deep eutectic solvents},
+  author       = {Luu, Rachel K. and Wysokowski, Marcin and Buehler, Markus J.},
+  journal      = {Applied Physics Letters},
+  volume       = {122},
+  number       = {23},
+  pages        = {234103},
+  year         = {2023},
+  doi          = {10.1063/5.0155890},
+  url          = {https://doi.org/10.1063/5.0155890},
+  publisher    = {AIP Publishing},
+  note         = {APL Special Collection: Accelerate Materials Discovery and Phenomena}
+}
+```
